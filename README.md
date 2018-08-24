@@ -3,19 +3,18 @@
 A cancer cell can be targeted by the immune system based on novel mutations, called Variant Antigens. DNA harbouring such mutations translate into neoantigen peptides. From NGS somatic variant calling data, we can attempt to reconstruct epitopes  sequences of such neoantigen peptides, or more specifically, epitopes, and thus produce personalised DNA-based cancer vaccines. 
 
 # pVACtools
-GitHub: https://github.com/griffithlab/pVACtools
-Docs: https://pvactools.readthedocs.io/en/latest/pvacseq/prerequisites.html#vep
-Publication: https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5
 
-A cancer cell can be targeted by the immune system based on novel mutations. We call such mutations Variant Antigens. From NGS somatic variant calls, we can attempt to reconstruct sequences of such neoantigen peptides, or more specifically, epitopes.
+[GitHub](https://github.com/griffithlab/pVACtools)
+
+[Docs](https://pvactools.readthedocs.io/en/latest/pvacseq/prerequisites.html)
+
+[Publication](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5)
 
 pVACtools is a set of 3 tools:
-	* pVACseq
-	A cancer immunotherapy pipeline for identifying and prioritizing neoantigens from a list of tumor mutations.
-	* pVACfuse
-	A tool for detecting neoantigens resulting from gene fusions.
-	* pVACvector
-	A tool designed to aid specifically in the construction of DNA-based cancer vaccines.
+
+* pVACseq - A cancer immunotherapy pipeline for identifying and prioritizing neoantigens from a list of tumor mutations.
+* pVACfuse -	A tool for detecting neoantigens resulting from gene fusions.
+* pVACvector - A tool designed to aid specifically in the construction of DNA-based cancer vaccines.
 
 ## Installation (raijin)
 
