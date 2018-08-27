@@ -2,6 +2,33 @@
 
 A cancer cell can be targeted by the immune system based on novel mutations ("Variant Antigens"). DNA harbouring such mutations translate into neoantigen peptides. From NGS somatic variant calling data, we can attempt to reconstruct epitopes  sequences of such neoantigen peptides, or more specifically, epitopes, and thus produce personalised DNA-based cancer vaccines. 
 
+- [Neoantigen identification](#neoantigen-identification)
+- [pVACtools](#pvactools)
+  * [Installation (raijin)](#installation--raijin-)
+  * [Running on example data](#running-on-example-data)
+  * [Running offline](#running-offline)
+  * [Running on NeverResponder](#running-on-neverresponder)
+    + [Preparing minimal inputs (a VCF)](#preparing-minimal-inputs--a-vcf-)
+    + [Running with VCF alone](#running-with-vcf-alone)
+    + [Exploring results](#exploring-results)
+  * [Adding expression and coverage](#adding-expression-and-coverage)
+    + [Preparing coverage](#preparing-coverage)
+    + [Running with coverage](#running-with-coverage)
+    + [Expression data](#expression-data)
+      - [Expression from other tools](#expression-from-other-tools)
+    + [Expression + RNA coverage](#expression---rna-coverage)
+  * [Other options](#other-options)
+    + [HLA alleles](#hla-alleles)
+    + [Prediction algorithms](#prediction-algorithms)
+    + [Scoring metric](#scoring-metric)
+    + [NetChop prediction](#netchop-prediction)
+    + [NetMHCstabpan prediction](#netmhcstabpan-prediction)
+    + [Downstream limit for frameshifts](#downstream-limit-for-frameshifts)
+    + [Top epitope](#top-epitope)
+  * [Command line for production](#command-line-for-production)
+  * [Downstream analysis with pVACvector](#downstream-analysis-with-pvacvector)
+  * [Docker and CWL](#docker-and-cwl)
+
 
 # pVACtools
 
@@ -13,9 +40,11 @@ A cancer cell can be targeted by the immune system based on novel mutations ("Va
 
 pVACtools is a set of 3 pipelines:
 
-* pVACseq - Identifying and prioritizing neoantigens from a list of tumor mutations.
-* pVACfuse -	Detecting neoantigens resulting from gene fusions.
-* pVACvector - Aid in the construction of DNA-based cancer vaccines.
+* **pVACseq**: Identifying and prioritizing neoantigens from a list of tumor mutations.
+* **pVACfuse**:	Detecting neoantigens resulting from gene fusions.
+* **pVACvector**: Aid in the construction of DNA-based cancer vaccines.
+
+![Structure](pVACtools_main-figure_v2e.png)
 
 
 ## Installation (raijin)
@@ -42,13 +71,13 @@ Working on raijin at:
 
 ## Running on example data
 
-Download the example data (will be saved into `./pvacseq_example_data`)
+Following the [docs](https://pvactools.readthedocs.io/en/latest/pvacseq/getting_started.html), download the example data (will be saved into `./pvacseq_example_data`):
 
 ```
 pvacseq download_example_data .
 ```
 
-Run:
+And running:
 
 ```
 pvacseq run \
@@ -75,6 +104,7 @@ rm -rf pvacseq_example_output  # clean previous output directory
 ```
 
 Success now. 
+
 
 ## Running offline
 
@@ -128,13 +158,33 @@ pvacseq_example_output_localdb \
 --iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools
 ```
 
-Processes IEDB correctly, however still fails because needs the internet for something else:
+Processes IEDB correctly, however still fails because needs the internet for NetChop and NetMHCstabpan predictions:
 
 ```
-requests.exceptions.ConnectionError: HTTPConnectionPool(host='www.cbs.dtu.dk', port=80): Max retries exceeded with url: /cgi-bin/webface2.fcgi (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f3a9b931588>: Failed to establish a new connection: [Errno -2] Name or service not known',))
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='www.cbs.dtu.dk', port=80)
 ```
 
-Forgetting the idea to run on worker nodes. As we see further, the login node is sufficient to run the tool on full data. Also keeping in mind an option to fall back to the Dockerized version to run on AWS (see below).
+We can turn off running the NetChop and NetMHCstabpan predictions by removing the options `--net-chop-method` and `--netmhc-stab`:
+
+```
+pvacseq run \
+pvacseq_example_data/input.vcf \
+Test \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NetMHC PickPocket NNalign \
+pvacseq_example_output_localdb_nonetchop_nostab \
+-e 9,10 \
+-i pvacseq_example_data/additional_input_file_list.yaml \
+--tdna-vaf 20 \
+--top-score-metric=lowest \
+-d full \
+--keep-tmp-files \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools
+```
+
+Works offline now!
+
+As we see further, `NetChop` and `NetMHCstabpan ` just add some annotations and don't seem to do any filtering (however those can be done manually), so are quite optional. On the other side, as we see further, the login node is sufficient to run the tool on full data. Also keeping in mind an option to fall back to the Dockerized version to run on AWS (see in the end of this document).
 
 
 ## Running on NeverResponder
@@ -193,7 +243,7 @@ bcftools view -s diploid_tumor data/diploid__diploid_tumor-somatic-ensemble-pon_
 ```
 
 
-### Running with VCF
+### Running with VCF alone
 
 ```
 pvacseq run \
@@ -214,6 +264,7 @@ diploid_tumor_output \
 
 Works just nicely on the login node, so hopefully we are not gonna need to set it up for offline work.
 
+
 ### Exploring results
 
 The tool created 2 subfolders in the output directory:
@@ -229,8 +280,7 @@ Each folder, contains the following files:
 * `diploid_tumor.combined.parsed.tsv`:  above + with binding scores from IEDB added.
 * `diploid_tumor.filtered.binding.tsv`: above + filtering by binding threshold.
 * `diploid_tumor.stab.tsv`:             above + stability predictions added (optional).
-* `diploid_tumor.final.tsv`: 	         The final output file after all filtering and optional steps.
-
+* `diploid_tumor.final.tsv`: 	         The final output file after all filtering and optional steps (would be the same as `diploid_tumor.stab.tsv`).
 
 For `MHC_Class_I`, that's one final epitope in `diploid_tumor.final.tsv`:
 
@@ -241,9 +291,8 @@ Chromosome  Start     Stop      Reference  Variant  Transcript       Ensembl Gen
 
 `MHC_Class_II` has 106 final epitopes reported, based on 20 mutations in 20 different genes.
 
-If we run with `-t` option, only 1 epitope per variant will be reported, and the output will also contain an intermediate file:
+The columns are nicely explained [here](https://pvactools.readthedocs.io/en/latest/pvacseq/output_files.html).
 
-* `diploid_tumor.top.tsv`:  above + picking the top epitope for each variant (optional).
 
 ## Adding expression and coverage
 
@@ -376,6 +425,8 @@ Wee don't want such SNPs with NA to be reported, as zero RNAseq coverage means n
 awk -F"\t" '{OFS="\t"} { if ($24=="Tumor RNA Depth" || $24!="NA") print; } ' diploid_tumor.final.tsv 
 ```
 
+UPD: can use `--exclude-NAs` option, actually.
+
 
 ### Expression data
 
@@ -435,6 +486,14 @@ Gene Expression  Transcript Expression
 16.2014          4.10986
 ```
 
+#### Expression from other tools
+
+It's possible to use other bcbio output as expression input too. This is what file formats are actually needed for pVACseq ([from FAQ](https://pvactools.readthedocs.io/en/latest/pvacseq/frequently_asked_questions.html)]:
+
+> For transcript FPKM: a tab-separated file with a tracking_id column containing Ensembl transcript IDs and a FPKM column containing FPKM values.
+
+> For gene FPKM: a tab-separated file with a tracking_id column containing Ensembl gene IDs, a locus column describing the region within the gene, and a FPKM column containing FPKM values. In the pVACseq pipeline the FPKM values will be summed for all loci of a gene. You may also provide already summed FPKM values. In that case you will still need to provide a locus column but the values in that column can be empty.
+
 
 ### Expression + RNA coverage
 
@@ -475,16 +534,267 @@ Tumor RNA Depth  Tumor RNA VAF      Gene Expression  Transcript Expression
 
 Running with `-t` to get the top results might even reduce the output to a human readable file.
 
+The run took 17 minutes, which is acceptable.
 
-## Docker and CWL
-https://pvactools.readthedocs.io/en/latest/install.html#iedb-install
-A Docker container for pVACtools is available on DockerHub using the mgibio/pvactools repo:
-https://hub.docker.com/r/mgibio/pvactools
 
-CWL tool wrappers for pVACseq, pVACfuse, and pVACvector can be downloaded using the pvactools download_cwls command. The CWLs do not support the –iedb-install-directory or –additional-input-file-list options. Download CWL tool wrappers:
+## Other options
+
+We used the following options derived from the example run:
+
+* `HLA-G*01:09,HLA-E*01:01,H2-IAb` (HLA alleles)
+* `NetMHC PickPocket NNalign` (Prediction algorithms)
+* `-e 9,10` (Length of subpeptides (neoepitopes) to predict. Typical epitope lengths vary between 8-11. Required for Class I prediction algorithms)
+* `--net-chop-method cterm` (Use NetChop, and the value is prediction method - `cterm` or `20s`)
+* `--netmhc-stab` (Run NetMHCStabPan after all filtering and add stability predictions to predicted epitopes)
+* `--top-score-metric=lowest` (The ic50 scoring metric to use when filtering epitopes
+                        by binding-threshold or minimum fold change. Default: median)
+* `-d full` (Cap to limit the downstream sequence length for
+                        frameshifts when creating the fasta file. Use 'full'
+                        to include the full downstream sequence. Default: 1000)
+
+We will attempt few runs with options derived from those, following the [options docs](https://pvactools.readthedocs.io/en/latest/pvacseq/run.html).
+
+### HLA alleles
+
+We used the following alleles for epitope prediction:
+
+* `HLA-G*01:09`
+* `HLA-E*01:01`
+* `H2-IAb`
+
+However, the full list of available alleles is pretty huge:
 
 ```
-pvactools download_cwls cwls
+pvacseq valid_alleles | wc
+```
+
+Not altering this for now, need to explore how to decide on alleles.
+
+
+### Prediction algorithms
+
+The following list of the algorithms are available:
+
+```
+NNalign NetMHC NetMHCIIpan NetMHCcons NetMHCpan PickPocket SMM SMMPMBEC SMMalign
+```
+
+We used `NetMHC PickPocket NNalign`, however we will try to use all of them now:
+
+```
+pvacseq run \
+data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+diploid_tumor \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NNalign NetMHC NetMHCIIpan NetMHCcons NetMHCpan PickPocket SMM SMMPMBEC SMMalign \
+diploid_tumor_output_rnacov_expression_methods \
+-e 9,10 \
+--net-chop-method cterm \
+--netmhc-stab \
+--top-score-metric=lowest \
+-d full \
+--keep-tmp-files \
+-i data/diploid/additional_input_file_list.rna_coverage.expression.gtf.yaml \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--trna-vaf 10
+```
+
+Getting more output now. 
+
+`MHC_Class_I` contains now 5 epitopes, for 5 variants in 5 genes, 3 of which are best predicted with `NetMHCpan`, 1 with `SMM`, and one with `SMMPMBEC`. The one on 14:92470780 that was predicted with `PickPocket` before, is now also best predicted with `NetMHCpan`.
+
+`MHC_Class_II` contains 75 epitopes now, in 13 variants.
+
+Using all methods since it doesn't add much to the computational time (still 26 minutes) and doesn't clutter much the output, and it looks like it gives more reliable prediction overall. However [not all methods are independent](https://pvactools.readthedocs.io/en/latest/pvacseq/frequently_asked_questions.html): `NetMHCcons` is a consensus method between `NetMHC`, `NetMHCpan`, and `PickPocket`, so we can omit those and stick to the following:
+
+```
+NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign
+```
+
+
+### Scoring metric
+
+Since many algorithms can predict an epitop, the option `--top-score-metric` controls which algorithm's score will be used to report it, and to filter (with `-b` for binding threshold, which is default 500). Two options to select score from all prediction methods:
+
+* `lowest`: the best one (also recorded in the output as `Best MT Score`),
+* `median`: median one (`Median MT Score`)
+
+We used `lowest`; now trying with the default `median` (and also setting to use all methods for more representative results):
+
+```
+pvacseq run \
+data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+diploid_tumor \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NNalign NetMHC NetMHCIIpan NetMHCcons NetMHCpan PickPocket SMM SMMPMBEC SMMalign \
+diploid_tumor_output_rnacov_expression_methods_median \
+-e 9,10 \
+--top-score-metric=median \
+-d full \
+--keep-tmp-files \
+-i data/diploid/additional_input_file_list.rna_coverage.expression.gtf.yaml \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--trna-vaf 10
+```
+
+The output is briefer, with `MHC_Class_II` having 34 epitopes (in 5 variants), and `MHC_Class_I` having 1 epitope. So basically filters applied not to the best but median score drops out some variants. Might wanna stick to the `lowest` as a more safe one, because not sure about the methods weight (especially with collapsing all MHC methods into `NetMHCcons`).
+
+
+### NetChop prediction 
+
+[NetChop](http://www.cbs.dtu.dk/services/NetChop/) is a server that produces neural network predictions for human proteasome cleavage sites.
+
+If the option `--net-chop-method` is omitted, the NetChop predictions won't run, which saves a couple of minutes of runtime. Turning on NetChop doesn't seem to filter more output, but it produced extra columns as:
+
+```
+Best Cleavage Position  Best Cleavage Score  Cleavage Sites
+9                       0.955652             2:0.804808,5:0.926654,6:0.896452,8:0.599339,9:0.955652
+```
+
+We used `cterm` method. Available are `cterm` or `20s`:
+
+* `cterm` is C-term 3.0 network which is trained on 1260 MHC class I ligands (using only C-terminal cleavage site of the ligands). C-term 3.0 network performs best in predicting the boundaries of CTL epitopes.
+* `20s` is 20S network which is trained with in vitro degradation data published in Toes, et al. and Emmerich et al. 
+
+Also note that turning on NetChop requires Internet connectivity. So if we need to run pVACtools offline, we might want to turn it off. Otherwise, sticking to `cterm`.
+
+
+### NetMHCstabpan prediction
+
+[NetMHCstabpan](http://www.cbs.dtu.dk/services/NetMHCstabpan/) is a server predicts binding stability of peptides to any known MHC molecule using artificial neural networks (ANNs). The method is trained on more than 25,000 quantitative stability data covering 75 different HLA molecules.
+
+Using the `--netmhc-stab` option, like with NetChop, just adds a couple of columns into the output:
+
+```
+Predicted Stability  Half Life  Stability Rank  NetMHCstab allele
+0.000                0.08       46.00           HLA-B14:01
+```
+
+And should be omitted for offline mode.
+
+We might want to consider adding some filtering based on NetChop and NetMHCstabpan results. For example, many epitopes seem to have 0 stability, and we can require some threshold on that.
+
+
+### Downstream limit for frameshifts
+
+`-d` option limits the downstream sequence length for frameshifts when creating the fasta file. Use `full` to include the full downstream sequence. Default: 1000.
+
+We ran with `d full`. The result is the same with the default value, so sticking with it.
+
+
+### Top epitope
+
+Running with `-t` reports one top result and makes the output human readable:
+
+```
+pvacseq run \
+data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+diploid_tumor \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NNalign NetMHC NetMHCIIpan NetMHCcons NetMHCpan PickPocket SMM SMMPMBEC SMMalign \
+diploid_tumor_output_rnacov_expression_methods_median_top \
+-e 9,10 \
+--top-score-metric=median \
+-d full \
+--keep-tmp-files \
+-i data/diploid/additional_input_file_list.rna_coverage.expression.gtf.yaml \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--trna-vaf 10 \
+-t
+```
+
+Getting expected 5 epitopes for 5 variants in `MHC_Class_II`, and 1 for 1 in `MHC_Class_I`.
+
+Also getting 1 additional file in the output folders: `diploid_tumor.top.tsv`, and `diploid_tumor.filtered.coverage.tsv` corresponds to the pre-`-t` output, which is good if we want to go back to other epitopes for a variant, or re-filter (like above)
+
+We can alternatively post-filter already created results with the [top_score_filter command](https://pvactools.readthedocs.io/en/latest/pvacseq/filter_commands.html#top-score-filter):
+
+```
+pvacseq top_score_filter -m median MHC_Class_II/diploid_tumor.final.tsv MHC_Class_II/diploid_tumor.final.TOP.tsv
+```
+
+The command will reduce the output file to have only 1 epitope per variant. The command is confusing because it uses the same notation (top_score_filter of lowest/median) as the main tool's `-m` option, which selects one prediction across methods. However, this one selects the best across epitops for single variant, reducing 64 records to 12.
+
+
+## Command line for production
+
+Based on all the experiments, sticking to the following command:
+
+```
+pvacseq run \
+data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+diploid_tumor \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+diploid_tumor_production \
+-e 9,10 \
+-t \
+--top-score-metric=lowest \
+-i data/diploid/additional_input_file_list.rna_coverage.expression.gtf.yaml \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--trna-vaf 10 \
+--net-chop-method cterm \
+--netmhc-stab
+```
+
+With `--net-chop-method cterm` and `--netmhc-stab` optional for the cases of offline runs, and with `-t` to picking only the top epitope for a mutation.
+
+
+## Downstream analysis with pVACvector
+
+[pVACvector](https://pvactools.readthedocs.io/en/latest/pvacvector.html) is aids the construction of DNA-based cancer vaccines.
+
+* Input: a pVACseq output.
+* Output: ordering that minimizes the effects of junctional epitopes (that may create novel peptides) between the sequences.
+
+It does this by using the core pVACseq services to predict the binding scores for each junctional peptide. 
+
+It also tests junctions with spacer amino acid sequences that may help to reduce reactivity. These spacer amino acid sequences can be “HH”, “HHC”, “HHH”, “HHHD”, “HHHC”, “AAY”, “HHHH”, “HHAA”, “HHL” or “AAL”. The final vaccine ordering is achieved through a simulated annealing procedure that returns a near-optimal solution, when one exists.
+
+Running on expression+rnacov annotated run:
+
+```
+pvacvector run \
+diploid_tumor_output_rnacov_expression/MHC_Class_II/diploid_tumor.final.tsv \
+diploid_tumor \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NetMHC PickPocket NNalign \
+diploid_tumor_output_rnacov_expression/vector \
+-e 9,10 \
+--input_vcf data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+--keep-tmp-files \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools
+```
+
+Running on production run:
+
+```
+pvacvector run \
+diploid_tumor_production/MHC_Class_II/diploid_tumor.final.tsv \
+diploid_tumor \
+"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+diploid_tumor_production/vector \
+-e 9,10 \
+--input_vcf data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--keep-tmp-files
+```
+
+Output is a fasta file `diploid_tumor_results.fa` with the peptide sequences and best spacers in the optimal order, and a visualization of the above:
+
+![vector]()
+
+
+
+## Docker and CWL
+
+A [Docker container](https://pvactools.readthedocs.io/en/latest/install.html#docker-and-cwl) for pVACtools is available on DockerHub using the [mgibio/pvactools repo](https://hub.docker.com/r/mgibio/pvactools).
+
+CWL tool wrappers for pVACseq, pVACfuse, and pVACvector can be downloaded using the `download_cwls` command. The CWLs do not support the `--iedb-install-directory` or `--additional-input-file-list` options. Download CWL tool wrappers:
+
+```
+pvactools download_cwls cwls_dir
 ```
 
 
