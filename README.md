@@ -4,7 +4,8 @@ A cancer cell can be targeted by the immune system based on novel mutations ("Va
 
 - [Neoantigen identification](#neoantigen-identification)
 - [pVACtools](#pvactools)
-  * [Installation (raijin)](#installation--raijin-)
+  * [Installation](#installation)
+    + [Docker and CWL](#docker-and-cwl)
   * [Running on example data](#running-on-example-data)
   * [Running offline](#running-offline)
   * [Running on NeverResponder](#running-on-neverresponder)
@@ -15,7 +16,7 @@ A cancer cell can be targeted by the immune system based on novel mutations ("Va
     + [Preparing coverage](#preparing-coverage)
     + [Running with coverage](#running-with-coverage)
     + [Expression data](#expression-data)
-      - [Expression from other tools](#expression-from-other-tools)
+    + [Expression from other tools](#expression-from-other-tools)
     + [Expression + RNA coverage](#expression---rna-coverage)
   * [Other options](#other-options)
     + [HLA alleles](#hla-alleles)
@@ -26,8 +27,10 @@ A cancer cell can be targeted by the immune system based on novel mutations ("Va
     + [Downstream limit for frameshifts](#downstream-limit-for-frameshifts)
     + [Top epitope](#top-epitope)
   * [Command line for production](#command-line-for-production)
-  * [Downstream analysis with pVACvector](#downstream-analysis-with-pvacvector)
-  * [Docker and CWL](#docker-and-cwl)
+  * [Downstream analysis](#downstream-analysis)
+    + [pVACvector](#pvacvector)
+    + [pVACviz](#pvacviz)
+  * [HLA typing](#hla-typing)
 
 
 # pVACtools
@@ -47,7 +50,9 @@ pVACtools is a set of 3 pipelines:
 ![Structure](pVACtools_main-figure_v2e.png)
 
 
-## Installation (raijin)
+## Installation
+
+Working on Raijin.
 
 ```
 # source ~/load_conda.sh  # automatically done in ~/.zshrc
@@ -66,6 +71,17 @@ Working on raijin at:
 
 ```
 /g/data3/gx8/projects/Saveliev_pVACtools
+```
+
+
+### Docker and CWL
+
+A [Docker container](https://pvactools.readthedocs.io/en/latest/install.html#docker-and-cwl) for pVACtools is available on DockerHub using the [mgibio/pvactools repo](https://hub.docker.com/r/mgibio/pvactools).
+
+CWL tool wrappers for pVACseq, pVACfuse, and pVACvector can be downloaded using the `download_cwls` command. The CWLs do not support the `--iedb-install-directory` or `--additional-input-file-list` options. Download CWL tool wrappers:
+
+```
+pvactools download_cwls cwls_dir
 ```
 
 
@@ -184,7 +200,7 @@ pvacseq_example_output_localdb_nonetchop_nostab \
 
 Works offline now!
 
-As we see further, `NetChop` and `NetMHCstabpan ` just add some annotations and don't seem to do any filtering (however those can be done manually), so are quite optional. On the other side, as we see further, the login node is sufficient to run the tool on full data. Also keeping in mind an option to fall back to the Dockerized version to run on AWS (see in the end of this document).
+As we see further, `NetChop` and `NetMHCstabpan ` just add some annotations and don't seem to do any filtering (however those can be done manually), so are quite optional. On the other side, as we see further, the login node is sufficient to run the tool on full data. Also keeping in mind an option to fall back to the Dockerized version to run on AWS.
 
 
 ## Running on NeverResponder
@@ -486,7 +502,7 @@ Gene Expression  Transcript Expression
 16.2014          4.10986
 ```
 
-#### Expression from other tools
+### Expression from other tools
 
 It's possible to use other bcbio output as expression input too. This is what file formats are actually needed for pVACseq ([from FAQ](https://pvactools.readthedocs.io/en/latest/pvacseq/frequently_asked_questions.html)]:
 
@@ -562,13 +578,13 @@ We used the following alleles for epitope prediction:
 * `HLA-E*01:01`
 * `H2-IAb`
 
-However, the full list of available alleles is pretty huge:
+The full list of available alleles is pretty huge:
 
 ```
 pvacseq valid_alleles | wc
 ```
 
-Not altering this for now, need to explore how to decide on alleles.
+So we may want to run HLA typing on the sample to get the input alleles. See [below](#hla-typing).
 
 
 ### Prediction algorithms
@@ -740,7 +756,9 @@ diploid_tumor_production \
 With `--net-chop-method cterm` and `--netmhc-stab` optional for the cases of offline runs, and with `-t` to picking only the top epitope for a mutation.
 
 
-## Downstream analysis with pVACvector
+## Downstream analysis
+
+### pVACvector
 
 [pVACvector](https://pvactools.readthedocs.io/en/latest/pvacvector.html) is aids the construction of DNA-based cancer vaccines.
 
@@ -751,22 +769,26 @@ It does this by using the core pVACseq services to predict the binding scores fo
 
 It also tests junctions with spacer amino acid sequences that may help to reduce reactivity. These spacer amino acid sequences can be “HH”, “HHC”, “HHH”, “HHHD”, “HHHC”, “AAY”, “HHHH”, “HHAA”, “HHL” or “AAL”. The final vaccine ordering is achieved through a simulated annealing procedure that returns a near-optimal solution, when one exists.
 
-Running on expression+rnacov annotated run:
+Running on `MHC_Class_I` 2 epitopes:
 
 ```
 pvacvector run \
-diploid_tumor_output_rnacov_expression/MHC_Class_II/diploid_tumor.final.tsv \
+diploid_tumor_production/MHC_Class_I/diploid_tumor.final.tsv \
 diploid_tumor \
 "HLA-G*01:09,HLA-E*01:01,H2-IAb" \
-NetMHC PickPocket NNalign \
-diploid_tumor_output_rnacov_expression/vector \
+NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+diploid_tumor_production/MHC_Class_I/vector \
 -e 9,10 \
 --input_vcf data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
---keep-tmp-files \
---iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--keep-tmp-files
 ```
 
-Running on production run:
+For some reason it queries the IEDB database again, does it need to? Need to figure out.
+
+The run finished fine. But for some reason didn't produce the expected image - only `.fa` files are found in the output folder. Maybe need to rerun on larger input?
+
+Running on larger `MHC_Class_II`:
 
 ```
 pvacvector run \
@@ -774,27 +796,54 @@ diploid_tumor_production/MHC_Class_II/diploid_tumor.final.tsv \
 diploid_tumor \
 "HLA-G*01:09,HLA-E*01:01,H2-IAb" \
 NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
-diploid_tumor_production/vector \
+diploid_tumor_production/MHC_Class_II/vector \
 -e 9,10 \
 --input_vcf data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
 --iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
 --keep-tmp-files
 ```
 
+Failing with:
+
+```
+Running IEDB on Allele HLA-E*01:01 and Epitope Length 9 with Method SMM - Entries 1-2
+Traceback (most recent call last):
+...
+subprocess.CalledProcessError: Command '['python2.7', '/g/data3/gx8/projects/Saveliev_pVACtools/mhc_i/src/predict_binding.py', 'smm', 'HLA-E*01:01', '9', '/g/data3/gx8/projects/Saveliev_pVACtools/diploid_tumor_production/MHC_Class_II/vector/MHC_Class_I/tmp/diploid_tumor_.fa.split_1-2']' returned non-zero exit status -9
+```
+
+Hmm, why does it need to predict bindings again? Anyway, trying to rerun the failed command standalone:
+
+```
+python2.7 /g/data3/gx8/projects/Saveliev_pVACtools/mhc_i/src/predict_binding.py smm "HLA-E*01:01" 9 /g/data3/gx8/projects/Saveliev_pVACtools/diploid_tumor_production/vector/MHC_Class_I/tmp/diploid_tumor_.fa.split_1-2
+```
+
+Fails with OOM. I guess we are gonna need to use the worker nodes this time. Rerunning.
+
+
+
 Output is a fasta file `diploid_tumor_results.fa` with the peptide sequences and best spacers in the optimal order, and a visualization of the above:
 
 ![vector]()
 
 
+### pVACviz
 
-## Docker and CWL
+Looks like it's unreleased. No information about it on the website, and on GitHub, it seems to be under active development under [staging branch](https://github.com/griffithlab/pVACtools/tree/staging/utils/pvacviz).
 
-A [Docker container](https://pvactools.readthedocs.io/en/latest/install.html#docker-and-cwl) for pVACtools is available on DockerHub using the [mgibio/pvactools repo](https://hub.docker.com/r/mgibio/pvactools).
 
-CWL tool wrappers for pVACseq, pVACfuse, and pVACvector can be downloaded using the `download_cwls` command. The CWLs do not support the `--iedb-install-directory` or `--additional-input-file-list` options. Download CWL tool wrappers:
+## HLA typing
+
+We need to know HLA alleles on pVAC input. HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We will try to re-analyse the sample against hg38 and turn on HLA typing.
+
+[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. We will use `optitype`. Running bcbio on spartan with `hlacaller: optitype` section in config:
 
 ```
-pvactools download_cwls cwls_dir
+source ~/load_bcbio.sh
+cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/bcbio_hg38
+bcbio_nextgen.py -w template diploid-template.yaml diploid.csv /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B*
+cd diploid/work
+sbatch run.sh
 ```
 
 
