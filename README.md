@@ -1,39 +1,64 @@
-# Neoantigen identification
+# Neoantigen identification <!-- omit in toc --> 
 
-A cancer cell can be targeted by the immune system based on novel mutations ("Variant Antigens"). DNA harbouring such mutations translate into neoantigen peptides. From NGS somatic variant calling data, we can attempt to reconstruct epitopes  sequences of such neoantigen peptides, or more specifically, epitopes, and thus produce personalised DNA-based cancer vaccines. 
+Anti-tumor T cells recognize tumor somatic mutations, translated as single amino acid substitutions, as "neoantigens" (upon processing and presentation in the context of MHC molecules). From NGS somatic variant calling data, we can attempt to reconstruct peptide sequences of such neoantigens, and thus produce personalised cancer vaccines.
 
-- [Neoantigen identification](#neoantigen-identification)
+- [Introduction](#introduction)
+    - [Biology](#biology)
+    - [Approach](#approach)
+    - [Prediction methods](#prediction-methods)
+    - [Ranking tools](#ranking-tools)
 - [pVACtools](#pvactools)
-  * [Installation](#installation)
-    + [Docker and CWL](#docker-and-cwl)
-  * [Running on example data](#running-on-example-data)
-  * [Running offline](#running-offline)
-  * [Running on NeverResponder](#running-on-neverresponder)
-    + [Preparing minimal inputs (a VCF)](#preparing-minimal-inputs--a-vcf-)
-    + [Running with VCF alone](#running-with-vcf-alone)
-    + [Exploring results](#exploring-results)
-  * [Adding expression and coverage](#adding-expression-and-coverage)
-    + [Preparing coverage](#preparing-coverage)
-    + [Running with coverage](#running-with-coverage)
-    + [Expression data](#expression-data)
-    + [Expression from other tools](#expression-from-other-tools)
-    + [Expression + RNA coverage](#expression---rna-coverage)
-  * [Other options](#other-options)
-    + [HLA alleles](#hla-alleles)
-    + [Prediction algorithms](#prediction-algorithms)
-    + [Scoring metric](#scoring-metric)
-    + [NetChop prediction](#netchop-prediction)
-    + [NetMHCstabpan prediction](#netmhcstabpan-prediction)
-    + [Downstream limit for frameshifts](#downstream-limit-for-frameshifts)
-    + [Top epitope](#top-epitope)
-  * [Command line for production](#command-line-for-production)
-  * [Downstream analysis](#downstream-analysis)
-    + [pVACvector](#pvacvector)
-    + [pVACviz](#pvacviz)
-  * [HLA typing](#hla-typing)
+- [Installation](#installation)
+  - [Docker and CWL](#docker-and-cwl)
+- [Running on example data](#running-on-example-data)
+- [Running offline](#running-offline)
+- [Minimal run with NeverResponder](#minimal-run-with-neverresponder)
+  - [Preparing VCF](#preparing-vcf)
+  - [HLA types](#hla-types)
+- [Running](#running)
+  - [Exploring results](#exploring-results)
+- [Adding expression and coverage](#adding-expression-and-coverage)
+  - [Preparing coverage](#preparing-coverage)
+  - [Running with coverage](#running-with-coverage)
+  - [Expression data](#expression-data)
+  - [Expression from other tools](#expression-from-other-tools)
+  - [Expression + RNA coverage](#expression--rna-coverage)
+- [Other options](#other-options)
+  - [Prediction algorithms](#prediction-algorithms)
+  - [Scoring metric](#scoring-metric)
+  - [NetChop prediction](#netchop-prediction)
+  - [NetMHCstabpan prediction](#netmhcstabpan-prediction)
+  - [Downstream limit for frameshifts](#downstream-limit-for-frameshifts)
+  - [Top epitope](#top-epitope)
+- [Command line for production](#command-line-for-production)
+- [Downstream analysis](#downstream-analysis)
+  - [pVACvector](#pvacvector)
+  - [pVACviz](#pvacviz)
+- [HLA typing](#hla-typing)
+- [Results validity](#results-validity)
+
+## Introduction
+
+#### Biology
+
+The main paradigm behind the development of cancer vaccines rests on the assumption that if the immune system is stimulated to recognize neoantigens, it may be possible to elicit the selective destruction of tumor cells. Vaccines incorporate these neoantigen peptides with the aim of enhancing the immune system’s anti-tumor activity by selectively increasing the frequency of specific CD8+ T cells, and hence expanding the immune system’s ability to recognize and destroy cancerous cells. This process is dependent on the ability of these peptides to bind and be presented by HLA class I molecules, a critical step to inducing an immune response and activating CD8+ T cells.
+
+#### Approach
+
+As we move from vaccines targeting ‘shared’ tumor antigens to a more ‘personalized’ medicine approach, in silico strategies are needed to first identify, then determine which somatic alterations provide the optimal neoantigens for the vaccine design. Ideally, an optimal strategy would intake mutation calls from tumor/normal DNA sequencing data, identify the neoantigens in the context of the patient’s HLA alleles, and parse out a list of optimal peptides for downstream testing.
+
+#### Prediction methods
+
+Several in silico epitope binding prediction methods have been developed [11](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12175724), [12](http://scholar.google.com/scholar_lookup?title=A%20hybrid%20approach%20for%20predicting%20promiscuous%20MHC%20class%20I%20restricted%20T%20cell%20epitopes&author=M.%20Bhasin&author=G.%20Raghava&journal=J%20Biosci&volume=1&issue=32&pages=31-42&publication_year=2006), [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), [15](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25464113). These methods employ various computational approaches such as Artificial Neural Networks (ANN) and Support Vector Machines (SVM) and are trained on binding to different HLA class I alleles to effectively identify putative T cell epitopes.
+
+#### Ranking tools
+
+There are also existing software tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25300482), [EpiBot](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25905908), [EpiToolKit](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25712691)) that compile the results generated from individual epitope prediction algorithms to improve the prediction accuracy with consensus methods or a unified final ranking. EpiToolKit also has the added functionality of incorporating sequencing variants in its Galaxy-like epitope prediction workflow (via its Polymorphic Epitope Prediction plugin). However, it does not incorporate sequence read coverage or gene expression information available, nor can it compare the binding affinity of the peptide in the normal sample (WT) versus the tumor (mutant). Another multi-step workflow [Epi-Seq](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25245761) uses only raw RNA-Seq tumor sample reads for variant calling and predicting tumor-specific expressed epitopes.
+
+pVACseq is a workflow that identifies and shortlist candidate neoantigen peptides from tumor mutational repertoire. It can use both DNA and RNA sequencing data. Predicted peptides can be used in a personalized vaccine after immunological screening. The tool offers the functionality to compare and differentiate the epitopes found in normal cells against the neoepitopes specifically present in tumor cells for use in personalized cancer vaccines.
 
 
-# pVACtools
+## pVACtools
 
 [GitHub](https://github.com/griffithlab/pVACtools)
 
@@ -43,9 +68,9 @@ A cancer cell can be targeted by the immune system based on novel mutations ("Va
 
 pVACtools is a set of 3 pipelines:
 
-* **pVACseq**: Identifying and prioritizing neoantigens from a list of tumor mutations.
-* **pVACfuse**:	Detecting neoantigens resulting from gene fusions.
-* **pVACvector**: Aid in the construction of DNA-based cancer vaccines.
+* **pVACseq**: Identifies and prioritizes neoantigens from a list of tumor mutations. Takes somatic VCF and HLA types, and 1. performs epitope prediction, 2. integrates sequencing-based information, 3. filters neoantigen candidates.
+* **pVACfuse**:	Detects neoantigens resulting from gene fusions.
+* **pVACvector**: Aids in the construction of DNA-based cancer vaccines.
 
 ![Structure](pVACtools_main-figure_v2e.png)
 
@@ -203,13 +228,19 @@ Works offline now!
 As we see further, `NetChop` and `NetMHCstabpan ` just add some annotations and don't seem to do any filtering (however those can be done manually), so are quite optional. On the other side, as we see further, the login node is sufficient to run the tool on full data. Also keeping in mind an option to fall back to the Dockerized version to run on AWS.
 
 
-## Running on NeverResponder
+## Minimal run with NeverResponder
 
-### Preparing minimal inputs (a VCF)
+The tool's minimal required inputs are:
 
-The minimal required input is a VCF with VEP-annotated tumor mutations. From umccrised bcbio output, taking post-PoN ensemble somatic VCF, annotating with VEP and bcftool'ing to extract the tumor sample. 
+- VCF of somatic mutations, annotated with amino acid changes and transcript sequences by VEP.
+- HLA haplotypes of the patient.
 
-Trying to run on the NeverResponder sample (`/data/cephfs/punim0010/data/Results/Patients/2018-01-17`), as it has both mutation and expression data.
+
+### Preparing VCF
+
+The tool requires VEP-annotated tumor mutations. From umccrised bcbio output, we are taking post-PoN ensemble somatic VCF, then annotating with VEP and bcftool'ing to extract the tumor sample.
+
+We are using NeverResponder sample (`/data/cephfs/punim0010/data/Results/Patients/2018-01-17`), as it has both mutation and expression data.
 
 Copying the VCF back from spartan:
 
@@ -258,8 +289,12 @@ conda install -y -c bioconda bcftools
 bcftools view -s diploid_tumor data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.vcf > data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf
 ```
 
+### HLA types
 
-### Running with VCF alone
+We do not have the knowledge of HLA types for that sample because it can be reliably found only against the hg38 reference genome. So for the test purposes on this GRCh37, we are gonna be using common `HLA-G*01:09`, `HLA-E*01:01`, and `H2-IAb`. [Later](#hla-typing) we will rerun the sample against hg38 in bcbio.
+
+
+## Running 
 
 ```
 pvacseq run \
@@ -425,9 +460,11 @@ diploid_tumor_output_coverage_af10 \
 --trna-vaf 10
 ```
 
-Now getting 1 epitope in `MHC_Class_I` back, and 73 epitopes (14 variants) in `MHC_Class_II`. It filtered out variants with normal AF>2%, for example a variant with tumor AF 18%, and normal AF 8% was filtered out. I think since we're doing all sensible somatic filtering before passing the VCF into pVACtools, we don't need to do extra filtering here. So we will just remove the frequencies and depths from the inputs (except for those for RNA).  
+Now getting 1 epitope in `MHC_Class_I` back, and 73 epitopes (14 variants) in `MHC_Class_II`. It filtered out variants with normal AF>2%, for example a variant with tumor AF 18%, and normal AF 8% was filtered out. I think since we're doing all sensible somatic filtering before passing the VCF into pVACtools, we don't need to do extra filtering here. For example, filtering out normal AF>2% will have trouble with tumor contamination, and want to deal with that before running pVAC. So we will just remove the frequencies and depths from the inputs (except for those for RNA).
 
-However, one note: if the read coverage is 0, bam-readcount won't report such SNP at all, and pVACseq will use it as NA, and will keep such SNP as passed. For example, consider the following 2 SNPs. The second one has 2 read coverage, and it's filtered out correctly. The first one has 0 read coverage, and reported as NA, so the epitopes that this SNP supports will pass the filters:
+However, keeping in mind that we want to use only mutations for building epitopes that consistently appear in a tumor altogether. It's reached ideally on the VAF roughly equal to tumor ploidy. That's why it's good to figure out tumor ploidiy based on typical somatic mutations AFs, and then filter out mutations with tumor VAF below that value.
+
+Another technical note: if the read coverage is 0, bam-readcount won't report such SNP at all, and pVACseq will use it as NA, and will keep such SNP as passed. For example, consider the following 2 SNPs. The second one has 2 read coverage, and it's filtered out correctly. The first one has 0 read coverage, and reported as NA, so the epitopes that this SNP supports will pass the filters:
 
 ```
 chromosome_name  start      stop       reference  variant  gene_name  trna_depth  trna_vaf
@@ -569,22 +606,6 @@ We used the following options derived from the example run:
                         to include the full downstream sequence. Default: 1000)
 
 We will attempt few runs with options derived from those, following the [options docs](https://pvactools.readthedocs.io/en/latest/pvacseq/run.html).
-
-### HLA alleles
-
-We used the following alleles for epitope prediction:
-
-* `HLA-G*01:09`
-* `HLA-E*01:01`
-* `H2-IAb`
-
-The full list of available alleles is pretty huge:
-
-```
-pvacseq valid_alleles | wc
-```
-
-So we may want to run HLA typing on the sample to get the input alleles. See [below](#hla-typing).
 
 
 ### Prediction algorithms
@@ -740,7 +761,7 @@ Based on all the experiments, sticking to the following command:
 pvacseq run \
 data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
 diploid_tumor \
-"HLA-G*01:09,HLA-E*01:01,H2-IAb" \
+"<HLA_alleles>" \
 NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
 diploid_tumor_production \
 -e 9,10 \
@@ -755,6 +776,10 @@ diploid_tumor_production \
 
 With `--net-chop-method cterm` and `--netmhc-stab` optional for the cases of offline runs, and with `-t` to picking only the top epitope for a mutation.
 
+`<HLA_alleles>` should be repalced with results for HLA typing.
+
+Also, with known tumor ploidy, it would be improtant to still filter the mutations with tumor VAF below the ploidy, to make sure the mutations for building epitopes appear in the tumor altogether. In that case, we would add the coverage files back into the inputs yamls and set the `--tdna-vaf` option.
+
 
 ## Downstream analysis
 
@@ -768,6 +793,8 @@ With `--net-chop-method cterm` and `--netmhc-stab` optional for the cases of off
 It does this by using the core pVACseq services to predict the binding scores for each junctional peptide. 
 
 It also tests junctions with spacer amino acid sequences that may help to reduce reactivity. These spacer amino acid sequences can be “HH”, “HHC”, “HHH”, “HHHD”, “HHHC”, “AAY”, “HHHH”, “HHAA”, “HHL” or “AAL”. The final vaccine ordering is achieved through a simulated annealing procedure that returns a near-optimal solution, when one exists.
+
+The expected output is a fasta file `<sample>_results.fa` with the peptide sequences and best spacers in the optimal order, and a visualization of the above in a PNG file.
 
 Running on `MHC_Class_I` 2 epitopes:
 
@@ -787,6 +814,7 @@ diploid_tumor_production/MHC_Class_I/vector \
 For some reason it queries the IEDB database again, does it need to? Need to figure out.
 
 The run finished fine. But for some reason didn't produce the expected image - only `.fa` files are found in the output folder. Maybe need to rerun on larger input?
+
 
 Running on larger `MHC_Class_II`:
 
@@ -820,12 +848,23 @@ python2.7 /g/data3/gx8/projects/Saveliev_pVACtools/mhc_i/src/predict_binding.py 
 
 Fails with OOM. I guess we are gonna need to use the worker nodes this time. Rerunning.
 
+Now it seem to getting stuck on running on of the prediction methods, and running out of walltime:
 
+```
+...
+Executing MHC Class II predictions
+Generating Variant Peptide FASTA and Key Files
+Generating Variant Peptide FASTA and Key Files - Entries 1-2
+Completed
+Processing entries for Allele H2-IAb - Entries 1-2
+Running IEDB on Allele H2-IAb with Method NNalign - Entries 1-2
+Completed
+Running IEDB on Allele H2-IAb with Method NetMHCIIpan - Entries 1-2
+=>> PBS: job killed: walltime 36059 exceeded limit 36000
+[1]    22797 terminated  pvacvector run
+```
 
-Output is a fasta file `diploid_tumor_results.fa` with the peptide sequences and best spacers in the optimal order, and a visualization of the above:
-
-![vector]()
-
+Leaving this step out for now.
 
 ### pVACviz
 
@@ -834,20 +873,44 @@ Looks like it's unreleased. No information about it on the website, and on GitHu
 
 ## HLA typing
 
-We need to know HLA alleles on pVAC input. HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We will try to re-analyse the sample against hg38 and turn on HLA typing.
+We need to know HLA alleles on pVAC input. HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage.
 
-[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. We will use `optitype`. Running bcbio on spartan with `hlacaller: optitype` section in config:
+From [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11), we will note 3 thigs:
+- they used clinically genotyped calls when they are available,
+- for in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample (not sure why),
+- they used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
+- some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
+
+[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. We will use `optitype`, but keep in mind that we might also run with `bwakit` for control. Unfortunately bcbio can't run both tools at the same time (can report to Brad).
+
+- Copying data from Spartan: `/data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B_*`
+- Copying csv from Spartan `/data/cephfs/punim0010/data/Results/Patients/2018-01-17/config/diploid.csv`
+- Adding `hlacaller: optitype` into standard cancer workflow template `/g/data3/gx8/projects/std_workflow/std_workflow_cancer.yaml` 
+- Copying pbs submitter `/g/data3/gx8/projects/std_workflow/run.sh`
+- Running bcbio:
 
 ```
 source ~/load_bcbio.sh
-cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/bcbio_hg38
-bcbio_nextgen.py -w template diploid-template.yaml diploid.csv /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B*
+cd /g/data3/gx8/projects/Saveliev_pVACtools/bcbio_hg38
+bcbio_nextgen.py -w template std_workflow_cancer.yaml diploid.csv *.fastq.gz
+cp run.sh diploid/work
 cd diploid/work
-sbatch run.sh
+qsub run.sh
 ```
 
+The resulting alleles can be checked against the list of valid alleles for pVACseq:
 
+```
+pvacseq valid_alleles
+```
 
+## Results validity
+
+In their tests, out of 100-400 missense SNV per sample, they went down to 110-150 epitope candidates with 40-100 in HLA allele of interest, 11-24 after filtering by coverage/expression and eyeballing.
+
+They had 3 samples per patients from different tissue and final epitopes didn't exactly overlap. But they finally chosen 14-18 epitopes to test in binding assays, then going down to 7 to produce vaccines, 3 of which were confirmed immunogenic.
+
+![table](table.png)
 
 
 
