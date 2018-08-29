@@ -30,11 +30,11 @@ Anti-tumor T cells recognize tumor somatic mutations, translated as single amino
   - [NetMHCstabpan prediction](#netmhcstabpan-prediction)
   - [Downstream limit for frameshifts](#downstream-limit-for-frameshifts)
   - [Top epitope](#top-epitope)
+- [HLA typing](#hla-typing)
 - [Command line for production](#command-line-for-production)
 - [Downstream analysis](#downstream-analysis)
   - [pVACvector](#pvacvector)
   - [pVACviz](#pvacviz)
-- [HLA typing](#hla-typing)
 - [Results validity](#results-validity)
 
 ## Introduction
@@ -753,15 +753,77 @@ pvacseq top_score_filter -m median MHC_Class_II/diploid_tumor.final.tsv MHC_Clas
 The command will reduce the output file to have only 1 epitope per variant. The command is confusing because it uses the same notation (top_score_filter of lowest/median) as the main tool's `-m` option, which selects one prediction across methods. However, this one selects the best across epitops for single variant, reducing 64 records to 12.
 
 
-## Command line for production
+## HLA typing
 
-Based on all the experiments, sticking to the following command:
+We need to know HLA alleles to properly run pVACseq. 
+
+From [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11), we will note 3 things:
+- they used clinically genotyped calls when they are available,
+- for in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample (not sure why),
+- they used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
+- some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
+
+HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage. [Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. In any case, it first makes use of [bwakit](https://github.com/lh3/bwa/tree/master/bwakit)'s  `bwa-postalt.js` script in order to [extract HLA reads](https://github.com/bcbio/bcbio-nextgen/blob/a3473775db06540c10b5f20ddc2043b8cc99d1f8/bcbio/ngsalign/bwa.py#L70). The different is that the result is passed either to [OptiType's](https://github.com/FRED-2/OptiType) `OptiTypePipeline.py`, or to bwakit's run-HLA. Since bcbio can't run both tools at the same time, we will try `optitype`, but keep in mind that we might also run with `bwakit` for control. 
+
+```
+# copy fastq data from Spartan /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B_*`
+# copy samples csv from previous grch37 run on Spartan /data/cephfs/punim0010/data/Results/Patients/2018-01-17/config/diploid.csv
+# copy standard cancer workflow template /g/data3/gx8/projects/std_workflow/std_workflow_cancer.yaml and add `hlacaller: optitype` into it
+# copy pbs submitter /g/data3/gx8/projects/std_workflow/run.sh
+# running bcbio:
+source ~/load_bcbio.sh
+cd /g/data3/gx8/projects/Saveliev_pVACtools/bcbio_hg38
+bcbio_nextgen.py -w template std_workflow_cancer.yaml diploid.csv *.fastq.gz
+cp run.sh diploid/work
+cd diploid/work
+qsub run.sh
+```
+
+Optitype produced the following alleles (from `diploid_blood-optitype.csv` and `duploid_tumor-optitype.csv`), identical for tumor and blood:
+
+```
+locus  alleles                
+A      HLA-A*02:01;HLA-A*26:01
+B      HLA-B*35:02;HLA-B*18:01
+C      HLA-C*04:01;HLA-C*05:01
+```
+
+The resulting alleles can be checked against the list of valid alleles for pVACseq:
+
+```
+pvacseq valid_alleles > valid_alleles
+for A in "HLA-A*02:01" "HLA-A*26:01" "HLA-B*35:02" "HLA-B*18:01" "HLA-C*04:01" "HLA-C*05:01" ; do grep -q -F $A valid_alleles; done
+# should exit code zero
+```
+
+All are valid. rerunning with them now:
 
 ```
 pvacseq run \
 data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
 diploid_tumor \
-"<HLA_alleles>" \
+"HLA-A*02:01,HLA-A*26:01,HLA-B*35:02,HLA-B*18:01,HLA-C*04:01,HLA-C*05:01" \
+NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+diploid_tumor_output_rnacov_expression_hla \
+-e 9,10 \
+--top-score-metric=lowest \
+-i data/diploid/additional_input_file_list.rna_coverage.expression.gtf.yaml \
+--iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
+--trna-vaf 10
+```
+
+Since all HLA alelels are from MHC class I, we don't have anything for MHC class II. For MHC class 1, we have 88 epitopes predicted, in 31 different variants, from 30 genes.
+
+
+## Command line for production
+
+Based on all the experiments, this would be the production command line for this sample:
+
+```
+pvacseq run \
+data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf \
+diploid_tumor \
+"HLA-A*02:01,HLA-A*26:01,HLA-B*35:02,HLA-B*18:01,HLA-C*04:01,HLA-C*05:01" \
 NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
 diploid_tumor_production \
 -e 9,10 \
@@ -774,9 +836,11 @@ diploid_tumor_production \
 --netmhc-stab
 ```
 
-With `--net-chop-method cterm` and `--netmhc-stab` optional for the cases of offline runs, and with `-t` to picking only the top epitope for a mutation.
+For offline runs, we would omit `--net-chop-method cterm` and `--netmhc-stab`
 
-`<HLA_alleles>` should be repalced with results for HLA typing.
+Would keep `-t` to picking only the top epitope for a mutation, keeping in mind that we can go back to intermediate `diploid_tumor.filtered.coverage.tsv`, and refilter with `pvacseq top_score_filter`.
+
+HLA alleles should be repalced for a different sample
 
 Also, with known tumor ploidy, it would be improtant to still filter the mutations with tumor VAF below the ploidy, to make sure the mutations for building epitopes appear in the tumor altogether. In that case, we would add the coverage files back into the inputs yamls and set the `--tdna-vaf` option.
 
@@ -870,39 +934,6 @@ Leaving this step out for now.
 
 Looks like it's unreleased. No information about it on the website, and on GitHub, it seems to be under active development under [staging branch](https://github.com/griffithlab/pVACtools/tree/staging/utils/pvacviz).
 
-
-## HLA typing
-
-We need to know HLA alleles on pVAC input. HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage.
-
-From [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11), we will note 3 thigs:
-- they used clinically genotyped calls when they are available,
-- for in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample (not sure why),
-- they used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
-- some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
-
-[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. We will use `optitype`, but keep in mind that we might also run with `bwakit` for control. Unfortunately bcbio can't run both tools at the same time (can report to Brad).
-
-- Copying data from Spartan: `/data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B_*`
-- Copying csv from Spartan `/data/cephfs/punim0010/data/Results/Patients/2018-01-17/config/diploid.csv`
-- Adding `hlacaller: optitype` into standard cancer workflow template `/g/data3/gx8/projects/std_workflow/std_workflow_cancer.yaml` 
-- Copying pbs submitter `/g/data3/gx8/projects/std_workflow/run.sh`
-- Running bcbio:
-
-```
-source ~/load_bcbio.sh
-cd /g/data3/gx8/projects/Saveliev_pVACtools/bcbio_hg38
-bcbio_nextgen.py -w template std_workflow_cancer.yaml diploid.csv *.fastq.gz
-cp run.sh diploid/work
-cd diploid/work
-qsub run.sh
-```
-
-The resulting alleles can be checked against the list of valid alleles for pVACseq:
-
-```
-pvacseq valid_alleles
-```
 
 ## Results validity
 
