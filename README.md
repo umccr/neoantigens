@@ -293,11 +293,11 @@ bcftools view -s diploid_tumor data/diploid__diploid_tumor-somatic-ensemble-pon_
 
 We need to know HLA alleles to properly run pVACseq. 
 
-From [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11):
-- they used clinically genotyped calls whenever they are available,
-- for in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample,
-- they used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
-- some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
+Notes from [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11) on their approach to HLA typing:
+- They used clinically genotyped calls whenever they are available,
+- For in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample,
+- They used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
+- Some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
 
 HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We will need re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage. 
 
