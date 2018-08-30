@@ -291,7 +291,53 @@ bcftools view -s diploid_tumor data/diploid__diploid_tumor-somatic-ensemble-pon_
 
 ### HLA types
 
-We do not have the knowledge of HLA types for that sample because it can be reliably found only against the hg38 reference genome. So for the test purposes on this GRCh37, we are gonna be using common `HLA-G*01:09`, `HLA-E*01:01`, and `H2-IAb`. [Later](#hla-typing) we will rerun the sample against hg38 in bcbio.
+We need to know HLA alleles to properly run pVACseq. 
+
+From [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11):
+- they used clinically genotyped calls whenever they are available,
+- for in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample,
+- they used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
+- some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
+
+HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We will need re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage. 
+
+[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. In any case, it first makes use of [bwakit](https://github.com/lh3/bwa/tree/master/bwakit)'s  `bwa-postalt.js` script in order to [extract HLA reads](https://github.com/bcbio/bcbio-nextgen/blob/a3473775db06540c10b5f20ddc2043b8cc99d1f8/bcbio/ngsalign/bwa.py#L70). The different is that the result is passed either to [OptiType's](https://github.com/FRED-2/OptiType) `OptiTypePipeline.py`, or to bwakit's run-HLA. Since bcbio can't run both tools at the same time, we will try `optitype`, but keep in mind that we might also run with `bwakit` for control. 
+
+```
+# from spartan:
+# copy fastq /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B_*`
+# copy samples csv from previous grch37 run on Spartan /data/cephfs/punim0010/data/Results/Patients/2018-01-17/config/diploid.csv
+# copy standard cancer workflow template /g/data3/gx8/projects/std_workflow/std_workflow_cancer.yaml and add `hlacaller: optitype` into it
+# copy pbs submitter /g/data3/gx8/projects/std_workflow/run.sh
+# running bcbio on spartan:
+cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/bcbio_hg38/diploid/work
+source ~/load_bcbio.sh
+bcbio_nextgen.py -w template std_workflow_cancer.yaml diploid.csv *.fastq.gz
+cp run.sh diploid/work
+cd diploid/work
+qsub run.sh
+```
+
+Optitype produced the following alleles (from `diploid_blood-optitype.csv` and `duploid_tumor-optitype.csv`), identical for tumor and blood:
+
+```
+locus  alleles                
+A      HLA-A*02:01;HLA-A*26:01
+B      HLA-B*35:02;HLA-B*18:01
+C      HLA-C*04:01;HLA-C*05:01
+```
+
+The resulting alleles can be checked against the list of valid alleles for pVACseq:
+
+```
+pvacseq valid_alleles > valid_alleles
+for A in "HLA-A*02:01" "HLA-A*26:01" "HLA-B*35:02" "HLA-B*18:01" "HLA-C*04:01" "HLA-C*05:01" ; do grep -q -F $A valid_alleles; done
+# should exit code zero
+```
+
+All 6 alelles are valid.
+
+Most of the tests below we did before we had HLA typing results from bcbio run against the hg38 build, so we used common `HLA-G*01:09`, `HLA-E*01:01`, and `H2-IAb` as input types instead. [Later in this article we tested this sample with proper HLA types as well](#hla-typing).
 
 
 ## Running 
@@ -755,49 +801,7 @@ The command will reduce the output file to have only 1 epitope per variant. The 
 
 ## HLA typing
 
-We need to know HLA alleles to properly run pVACseq. 
-
-From [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11):
-- they used clinically genotyped calls whenever they are available,
-- for in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample,
-- they used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
-- some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
-
-HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage. [Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. In any case, it first makes use of [bwakit](https://github.com/lh3/bwa/tree/master/bwakit)'s  `bwa-postalt.js` script in order to [extract HLA reads](https://github.com/bcbio/bcbio-nextgen/blob/a3473775db06540c10b5f20ddc2043b8cc99d1f8/bcbio/ngsalign/bwa.py#L70). The different is that the result is passed either to [OptiType's](https://github.com/FRED-2/OptiType) `OptiTypePipeline.py`, or to bwakit's run-HLA. Since bcbio can't run both tools at the same time, we will try `optitype`, but keep in mind that we might also run with `bwakit` for control. 
-
-```
-# from spartan:
-# copy fastq /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170218A_SFRC01059_T_* /data/cephfs/punim0010/data/FASTQ/171220_A00130_0036_BH32JNDSXX/PRJ170198_SFRC01059_B_*`
-# copy samples csv from previous grch37 run on Spartan /data/cephfs/punim0010/data/Results/Patients/2018-01-17/config/diploid.csv
-# copy standard cancer workflow template /g/data3/gx8/projects/std_workflow/std_workflow_cancer.yaml and add `hlacaller: optitype` into it
-# copy pbs submitter /g/data3/gx8/projects/std_workflow/run.sh
-# running bcbio on spartan:
-cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/bcbio_hg38/diploid/work
-source ~/load_bcbio.sh
-bcbio_nextgen.py -w template std_workflow_cancer.yaml diploid.csv *.fastq.gz
-cp run.sh diploid/work
-cd diploid/work
-qsub run.sh
-```
-
-Optitype produced the following alleles (from `diploid_blood-optitype.csv` and `duploid_tumor-optitype.csv`), identical for tumor and blood:
-
-```
-locus  alleles                
-A      HLA-A*02:01;HLA-A*26:01
-B      HLA-B*35:02;HLA-B*18:01
-C      HLA-C*04:01;HLA-C*05:01
-```
-
-The resulting alleles can be checked against the list of valid alleles for pVACseq:
-
-```
-pvacseq valid_alleles > valid_alleles
-for A in "HLA-A*02:01" "HLA-A*26:01" "HLA-B*35:02" "HLA-B*18:01" "HLA-C*04:01" "HLA-C*05:01" ; do grep -q -F $A valid_alleles; done
-# should exit code zero
-```
-
-All are valid. rerunning with them now:
+For previous tests, we used generic HLA alleles (taken from example data) because we didn't have true HLA calls at the moment. Now that we [ran bcbio with Optitype against hg38](#hla-types), we can test pVACseq with correct HLA alleles:
 
 ```
 pvacseq run \
