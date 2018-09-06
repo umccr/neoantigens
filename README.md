@@ -1,4 +1,4 @@
-# Neoantigen identification <!-- omit in toc --> 
+# 🏺 Neoantigen identification <!-- omit in toc --> 
 
 Anti-tumor T cells recognize tumor somatic mutations, translated as single amino acid substitutions, as "neoantigens" (upon processing and presentation in the context of MHC molecules). From NGS somatic variant calling data, we can attempt to reconstruct peptide sequences of such neoantigens, and thus produce personalised cancer vaccines.
 
