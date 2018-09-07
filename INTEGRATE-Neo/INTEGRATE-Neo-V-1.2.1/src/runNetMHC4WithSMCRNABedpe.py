@@ -99,13 +99,12 @@ avail_allele = []
 
 def get_avail_allele():
     f=open(avail_file, "r")
-    f.readline()
     while True:
         line=f.readline()
         if line=="":
            break
         else:
-           tmp=line.split("\t")
+           tmp=line.strip().split("\t")
            avail_allele.append(tmp[0])
     f.close()
 
@@ -127,9 +126,11 @@ def get_allele_dic():
                 if x>1:
                     dicString=dicString+'\t'+tmp[x]
             hla_allele_dic[tmp[0]]=dicString
+    print('alleles:', hla_allele_dic)
     f.close()
 
 def get_allele_string():
+    #import pdb; pdb.set_trace()
     allele_str=''
     f=open(hla_allele_file,"r")
     while True:
@@ -137,14 +138,16 @@ def get_allele_string():
         if line=="":
             break
         else:
-            tmp=line.split("\t")
-            tmp2=tmp[0].replace(":","")
-            if tmp2 in avail_allele:
-                if allele_str=='':
-                    allele_str=tmp2
-                else:
-                    allele_str=allele_str+','+tmp2
+            allele = line.split("\t")[0].replace(':', '')
+            if allele not in avail_allele:
+                print('Error: allele "' + allele + '" is not in avail_allele: ' + str(avail_allele))
+                continue
+            if allele_str=='':
+                allele_str=allele
+            else:
+                allele_str=allele_str+','+allele
     f.close()         
+    assert allele_str, 'Alelels do not verify against the available allele list'
     return allele_str
 
 fusion_records = {}
@@ -206,6 +209,7 @@ def get_ks():
 
 def run_netMHC4():
     allele_strings=get_allele_string()    
+    print("allele_strings:", allele_strings)
 
     netMHC4_file=output_dir+'/netMHC4.0.out.append.txt'
 
@@ -219,6 +223,7 @@ def run_netMHC4():
         get_fasta(klen,fasta_file)
         
         cmd = path_to_netMHC4 +' -a '+ allele_strings + ' -l ' + str(klen) + ' ' + fasta_file;
+        print(cmd)
         p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE, stderr=STDOUT, close_fds=True)
         output = p.stdout.read()
         f=open(netMHC4_file,"a")
