@@ -12,15 +12,13 @@ Anti-tumor T cells recognize tumor somatic mutations, translated as single amino
   - [Docker and CWL](#docker-and-cwl)
 - [Running on example data](#running-on-example-data)
 - [Running offline](#running-offline)
-- [Minimal run with NeverResponder](#minimal-run-with-neverresponder)
-  - [Preparing VCF](#preparing-vcf)
-  - [HLA types](#hla-types)
-- [Running](#running)
-  - [Exploring results](#exploring-results)
-- [Adding expression and coverage](#adding-expression-and-coverage)
+- [Preparing VCF](#preparing-vcf)
+- [Preparing HLA types](#preparing-hla-types)
+- [Minimal run](#minimal-run)
+- [Adding coverage](#adding-coverage)
   - [Preparing coverage](#preparing-coverage)
   - [Running with coverage](#running-with-coverage)
-  - [Expression data](#expression-data)
+- [Expression data](#expression-data)
   - [Expression from other tools](#expression-from-other-tools)
   - [Expression + RNA coverage](#expression--rna-coverage)
 - [Other options](#other-options)
@@ -36,6 +34,10 @@ Anti-tumor T cells recognize tumor somatic mutations, translated as single amino
   - [pVACvector](#pvacvector)
   - [pVACviz](#pvacviz)
 - [Results validity](#results-validity)
+- [wt_KRAS patient](#wtkras-patient)
+- [pVACfuse](#pvacfuse)
+- [NeoepitopePred](#neoepitopepred)
+- [vaxrank](#vaxrank)
 
 ## Introduction
 
@@ -228,17 +230,14 @@ Works offline now!
 As we see further, `NetChop` and `NetMHCstabpan ` just add some annotations and don't seem to do any filtering (however those can be done manually), so are quite optional. On the other side, as we see further, the login node is sufficient to run the tool on full data. Also keeping in mind an option to fall back to the Dockerized version to run on AWS.
 
 
-## Minimal run with NeverResponder
+## Preparing VCF
 
 The tool's minimal required inputs are:
 
 - VCF of somatic mutations, annotated with amino acid changes and transcript sequences by VEP.
 - HLA haplotypes of the patient.
 
-
-### Preparing VCF
-
-The tool requires VEP-annotated tumor mutations. From umccrised bcbio output, we are taking post-PoN ensemble somatic VCF, then annotating with VEP and bcftool'ing to extract the tumor sample.
+The VCF file should contain VEP-annotated tumor mutations. From umccrised bcbio output, we are taking post-PoN ensemble somatic VCF, then annotating with VEP and bcftool'ing to extract the tumor sample.
 
 We are using NeverResponder sample (`/data/cephfs/punim0010/data/Results/Patients/2018-01-17`), as it has both mutation and expression data.
 
@@ -289,19 +288,25 @@ conda install -y -c bioconda bcftools
 bcftools view -s diploid_tumor data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.vcf > data/diploid__diploid_tumor-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf
 ```
 
-### HLA types
+## Preparing HLA types
 
 We need to know HLA alleles to properly run pVACseq. 
 
-Notes from [pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11) on their approach to HLA typing:
+The human leukocyte antigen (HLA) cluster located on chromosome 6 is one of the most polymorphic regions of the human genome and encodes for several genes involved in functions of the immune system, including HLA classes I and II. Both HLA classes comprise three major loci (HLA-I: A, B, C; HLA-II: DP, DQ, DR), which are co-dominantly expressed. HLA-I/II molecules present intracellular and extracellular peptides, respectively, and interact with other immune cells to induce an adaptive immune response. 
+
+HLA typing can be done with different degrees of resolution, with two-digit and four-digit types distinguishing HLA allele families and distinct HLA protein sequences, respectively. Typing can be done either using specific probing techniques, or purely in-silico from NGS sequencing data through computational means. However, because of the high variability of the HLA loci, the typical read mapping and variant calling-based analysis of NGS data is not suitable to determine the HLA genotype.
+
+[pVACseq methods](https://genomemedicine.biomedcentral.com/articles/10.1186/s13073-016-0264-5#CR11) section desribes their appoach to to HLA typing:
 - They used clinically genotyped calls whenever they are available,
 - For in-silico, they typed on the normal (peripheral blood mononuclear cells), rather than the tumor sample,
 - They used 2 tools (HLAminer or by Athlates) and note that they were >85% concordant, but it is helpful to use both algorithms in order to break ties reported by HLAminer.
 - Some epitope prediction algorithms, including NetMHC [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), only work with an algorithm-specific subset of HLA alleles, so we are constrained to the set of NetMHC-compatible alleles (e.g. NetMHC v3.4 supports 78 human alleles). On the other hand, such specific epitope prediction software perform slightly better when compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data.
 
-HLA typing is done best with hg38 when HLA alleles are a part of the reference build alternative contigs. We will need re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage. 
+[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. In any case, it first makes use of [bwakit](https://github.com/lh3/bwa/tree/master/bwakit)'s  `bwa-postalt.js` script in order to [extract HLA reads](https://github.com/bcbio/bcbio-nextgen/blob/a3473775db06540c10b5f20ddc2043b8cc99d1f8/bcbio/ngsalign/bwa.py#L70). The different is that the result is passed either to [OptiType's](https://github.com/FRED-2/OptiType) `OptiTypePipeline.py`, or to bwakit's run-HLA. 
 
-[Bcbio supports](https://bcbio-nextgen.readthedocs.io/en/latest/contents/configuration.html?highlight=hla#hla-typing) two HLA callers: `optitype` and `bwakit`. In any case, it first makes use of [bwakit](https://github.com/lh3/bwa/tree/master/bwakit)'s  `bwa-postalt.js` script in order to [extract HLA reads](https://github.com/bcbio/bcbio-nextgen/blob/a3473775db06540c10b5f20ddc2043b8cc99d1f8/bcbio/ngsalign/bwa.py#L70). The different is that the result is passed either to [OptiType's](https://github.com/FRED-2/OptiType) `OptiTypePipeline.py`, or to bwakit's run-HLA. Since bcbio can't run both tools at the same time, we will try `optitype`, but keep in mind that we might also run with `bwakit` for control. 
+According to OptiType (2014) benchmarks, HLAminer (2012) consistently underperformes compared to OptiType, and Athlates (2013) show comparable results.
+
+Bcbio does HLA typing only from hg38 alignments. That's probably because hg38 contains HLA alleles as alternative assembly contigs, which can significantly aid the typing. We will re-analyse the sample against the hg38 build with bcbio with enabled HLA typing stage. Since bcbio can't run both callers at the same time, we will try `optitype`, but keep in mind that we might also run with `bwakit` for control. 
 
 ```
 # from spartan:
@@ -340,7 +345,7 @@ All 6 alelles are valid.
 Most of the tests below we did before we had HLA typing results from bcbio run against the hg38 build, so we used common `HLA-G*01:09`, `HLA-E*01:01`, and `H2-IAb` as input types instead. [Later in this article we tested this sample with proper HLA types as well](#hla-typing).
 
 
-## Running 
+## Minimal run 
 
 ```
 pvacseq run \
@@ -360,9 +365,6 @@ diploid_tumor_output \
 ```
 
 Works just nicely on the login node, so hopefully we are not gonna need to set it up for offline work.
-
-
-### Exploring results
 
 The tool created 2 subfolders in the output directory:
 
@@ -391,7 +393,7 @@ Chromosome  Start     Stop      Reference  Variant  Transcript       Ensembl Gen
 The columns are nicely explained [here](https://pvactools.readthedocs.io/en/latest/pvacseq/output_files.html).
 
 
-## Adding expression and coverage
+## Adding coverage
 
 Coverage and expression data can be added to the pVACseq processing by providing bam-readcount and/or Cufflinks output files as additional input files. These additional input files must be 
 provided as a [yaml file in the following structure](https://pvactools.readthedocs.io/en/latest/pvacseq/prerequisites.html#optional-preprocessing):
@@ -527,7 +529,7 @@ awk -F"\t" '{OFS="\t"} { if ($24=="Tumor RNA Depth" || $24!="NA") print; } ' dip
 UPD: can use `--exclude-NAs` option, actually.
 
 
-### Expression data
+## Expression data
 
 RNA coverage above in principle should be sufficient for expression-based filtering, however pVACseq can make use of fpkm count files from cufflinks, so we will test it with them as well:
 
@@ -949,17 +951,24 @@ They had 3 samples per patients from different tissue and final epitopes didn't 
 ![table](table.png)
 
 
+## wt_KRAS patient
+
+[Here we are exploring](wt_KRAS.md) neoepitopes in wt_KRAS patient.
 
 
+## pVACfuse
+
+[Here we are exploring](pVACfuse.md) detection of neoepitopes from fusions calls.
 
 
+## NeoepitopePred
 
+Another tool that can run both from mutations and fusions is [NeoepitopePred](https://stjude.github.io/sjcloud-docs/guides/tools/neoepitope/). Exploring it [here](NeoepitopePred.md).
 
+## vaxrank
 
-
-
-
-
-
-
-
+[VaxRank](https://github.com/openvax/vaxrank) is enother epitope prediction tool.
+* Lack of docs (can refer to https://github.com/openvax/neoantigen-vaccine-pipeline/blob/master/README.md)
+* Uses one predictor at a time
+* Doesn't use fusions (?)
+* Runs from VCF and BAM
