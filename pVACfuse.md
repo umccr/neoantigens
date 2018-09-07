@@ -15,8 +15,8 @@
             - [fusionBedpeSubsetter](#fusionbedpesubsetter)
             - [runNetMHC4WithSMCRNABedpe.py](#runnetmhc4withsmcrnabedpepy)
             - [runAddNetMHC4Result.py](#runaddnetmhc4resultpy)
-        - [Running pVACfuse with INTEGRATE-Neo output](#running-pvacfuse-with-integrate-neo-output)
-        - [Converting pizzly into INTEGRATE-type bedpe](#converting-pizzly-into-integrate-type-bedpe)
+    - [Running pVACfuse with INTEGRATE-Neo output](#running-pvacfuse-with-integrate-neo-output)
+    - [Converting pizzly into INTEGRATE-type bedpe](#converting-pizzly-into-integrate-type-bedpe)
 
 Working directories:
 
@@ -442,7 +442,7 @@ The result is 2 calls:
 Only the 2nd one is reproted in the example data `./INTEGRATE-Neo/Examples/example1/fusion_antigen_out/result.bedpe`, might be due to the default affinity score threshold of 500 (set with `-m` in `runAddNetMHC4Result.py`). If we run with -m 200, the result will be identical.
 
 
-### Running pVACfuse with INTEGRATE-Neo output
+## Running pVACfuse with INTEGRATE-Neo output
 
 (`raijin`)
 
@@ -516,7 +516,7 @@ Chromosome  Start                  Stop     Reference  Variant  Ensembl Gene ID 
 And they are the same as produced INTEGRATE-Neo itself.
 
 
-### Converting pizzly into INTEGRATE-type bedpe
+## Converting pizzly into INTEGRATE-type bedpe
 
 We need to convert pizzly output into a bedpe file. Basically we need to query coordinates for the Ensembl transcript IDs, and using them (plus strand sign) convert the transcript-based fusion coordinates into the genome-based coordinate.
 
