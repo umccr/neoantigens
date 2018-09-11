@@ -1,10 +1,10 @@
 # KRAS-wt patient
 
 - [KRAS-wt patient](#kras-wt-patient)
-    - [VCF:](#vcf)
-    - [HLA](#hla)
-    - [Running pVACseq](#running-pvacseq)
-    - [Coverage](#coverage)
+  - [VCF:](#vcf)
+  - [HLA](#hla)
+  - [Running pVACseq](#running-pvacseq)
+  - [Coverage](#coverage)
 
 This patient has over 200k somatic mutations.
 
