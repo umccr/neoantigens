@@ -6,3 +6,5 @@ NeoepitopePred can run both from mutations and fusions. Docs: [https://stjude.gi
 * Can run EITHER from mutations, or fusions (like pVACtools)
 * Need mutations in a specific format
 * Uses NetMHCcons (consensus on a set of NetMHC methods).
+
+The runs on a server, and requires to upload the FASTQ data, which might be a problem for us.

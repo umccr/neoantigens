@@ -17,6 +17,8 @@
             - [runAddNetMHC4Result.py](#runaddnetmhc4resultpy)
     - [Running pVACfuse with INTEGRATE-Neo output](#running-pvacfuse-with-integrate-neo-output)
     - [Converting pizzly into INTEGRATE-type bedpe](#converting-pizzly-into-integrate-type-bedpe)
+    - [pVACfuse on annotated pizzly](#pvacfuse-on-annotated-pizzly)
+    - [INTEGRATE-Neo on pizzly and adding filtering before pVACfuse:](#integrate-neo-on-pizzly-and-adding-filtering-before-pvacfuse)
 
 Working directories:
 
@@ -47,6 +49,8 @@ pvacfuse_example_data/results \
 ```
 
 ## Fusions callers
+
+Useful wiki: [https://github.com/rdocking/fusebench/wiki/components_and_similar_projects](https://github.com/rdocking/fusebench/wiki/components_and_similar_projects)
 
 ### INTEGRATE
 
@@ -93,10 +97,10 @@ less pvacfuse_example_data/fusions.bedpe.annot
 Bcbio RNAseq pipeline supports the following tools:
 
 * kallisto + [pizzly](https://github.com/pmelsted/pizzly)
-* STAR + [oncofuse](http://www.unav.es/genetica/oncofuse.html) (GRCh37 only as STAR does not work with alts in hg38)
-* [EricScript](https://sites.google.com/site/bioericscript/) (calls bcbio)
+* STAR + [oncofuse](http://www.unav.es/genetica/oncofuse.html) (GRCh37 only as [STAR does not work with alts in hg38](https://github.com/alexdobin/STAR/issues/39))
+* [EricScript](https://sites.google.com/site/bioericscript)
 
-Based on discussion https://github.com/bcbio/bcbio-nextgen/issues/1649 pizzly is the way to go.
+Based on the [discussion](https://github.com/bcbio/bcbio-nextgen/issues/1649), pizzly is the best way to go.
 
 ### Pizzly
 
@@ -420,7 +424,7 @@ runNetMHC4WithSMCRNABedpe.py \
     -k
 ```
 
-Runs well, but interestingly only 1 HLA allele match the list.
+Runs well, but interestingly only one HLA allele match the list (HLA-C*07:02).
 
 #### runAddNetMHC4Result.py
 
@@ -505,7 +509,7 @@ pvacfuse run \
     --keep-tmp-files
 ```
 
-Works great. Outputs 2 epitopes:
+Works great, though again  Outputs 2 epitopes:
 
 ```
 Chromosome  Start                  Stop     Reference  Variant  Ensembl Gene ID  Variant Type    Mutation  Protein Position  Gene Name        HLA Allele   Peptide Length  Sub-peptide Position  Mutation Position  MT Epitope Seq  WT Epitope Seq  Best MT Score Method  Best MT Score  Corresponding WT Score  Corresponding Fold Change  Tumor DNA Depth  Tumor DNA VAF  Tumor RNA Depth  Tumor RNA VAF  Normal Depth  Normal VAF  Gene Expression  Transcript Expression  Median MT Score  Median WT Score  Median Fold Change  NetMHC WT Score  NetMHC MT Scor
@@ -520,27 +524,166 @@ And they are the same as produced INTEGRATE-Neo itself.
 
 We need to convert pizzly output into a bedpe file. Basically we need to query coordinates for the Ensembl transcript IDs, and using them (plus strand sign) convert the transcript-based fusion coordinates into the genome-based coordinate.
 
+Pizzly output looks as follows. Flat:
+
 ```
+geneA.name  geneA.id         geneB.name  geneB.id         paircount  splitcount  transcripts.list
+TFF1        ENSG00000160182  RPL7A       ENSG00000148303  2          4           ENST00000291527_0:551_ENST00000463740_29:1164;ENST00000291527_0:551_ENST00000323345_33:891
 ```
 
+Corresponding json record:
+
+```
+{
+  "genes" : [
+    {
+      "geneA" : { "id" : "ENSG00000160182", "name" : "TFF1"},
+      "geneB" : { "id" : "ENSG00000148303", "name" : "RPL7A"},
+      "paircount" : 2,
+      "splitcount" : 4,
+      "transcripts" : [       # all combinations of transcripts
+        {
+          "fasta_record": "ENST00000291527_0:551_ENST00000463740_29:1164",
+          "transcriptA": {"id" : "ENST00000291527", "startPos" : 0, "endPos" : 551, "edit" : -6, "strand" : true},
+          "transcriptB": {"id" : "ENST00000463740", "startPos" : 29, "endPos" : 1164, "edit" : -4, "strand" : true},
+          "support" : 6,
+          "reads" : [0, 1, 2, 3, 4, 5]
+        },
+        {
+          "fasta_record": "ENST00000291527_0:551_ENST00000323345_33:891",
+          "transcriptA": {"id" : "ENST00000291527", "startPos" : 0, "endPos" : 551, "edit" : -6, "strand" : true},
+          "transcriptB": {"id" : "ENST00000323345", "startPos" : 33, "endPos" : 891, "edit" : -4, "strand" : true},
+          "support" : 6,
+          "reads" : [0, 1, 2, 3, 4, 5]
+        }
+      ],
+    },
+    ...
+  ]
+}
+...
+```
+
+We expect it to convert into following:
+
+```
+#chr 5p  start 5p  end 5p    chr 3p  start 3p   end 3p    name of fusion    tier  strand 3p  strand 5p  quantitation
+21       -1        43786519  9       -1         136215101 TFF1>>RPL7A	    -     -          +          -
+```
+
+Making a script that maps transcript coordinates in pizzly output using [pyensembl](https://github.com/openvax/pyensembl) and produces a bedpe file.
+
+```
+# takes CCR180109_VPT-EH09_RNA.json and CCR180109_VPT-EH09_RNA-flat-filtered.tsv
+# produces CCR180109_VPT-EH09_RNA.bedpe
+python pizzly_to_bedpe.py CCR180109_VPT-EH09_RNA
+```
+
+We get:
+
+```
+21      -1        43786519        9       136215101       -1       TFF1>>RPL7A     3       -       +       6
+...
+```
+
+Running INTEGRATE-Neo to annotate the bedpe. Need to make sure we use the same Ensembl version (75 for GRCh37 in this case).
+
+```
+wget ftp://ftp.ensembl.org/pub/release-75/gtf/homo_sapiens/Homo_sapiens.GRCh37.75.gtf.gz
+gtfToGenePred -genePredExt -geneNameAsName2 Homo_sapiens.GRCh37.75.gtf.gz Homo_sapiens.GRCh37.75.genePred
+
+wget ftp://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.75.dna_sm.primary_assembly.fa.gz
+gunzip Homo_sapiens.GRCh37.75.dna_sm.primary_assembly.fa.gz
+
+fusionBedpeAnnotator \
+    --reference-file Homo_sapiens.GRCh37.75.dna_sm.primary_assembly.fa \
+    --gene-annotation-file Homo_sapiens.GRCh37.75.genePred \
+    --di-file ./INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1/src/difile.txt \
+    --input-file /data/cephfs/punim0010/projects/Saveliev_pVACtools/fusion/pizzly/CCR180081_MH18T002P053_RNA-flat-filtered.bedpe \
+    --output-file /data/cephfs/punim0010/projects/Saveliev_pVACtools/fusion/pizzly/CCR180081_MH18T002P053_RNA-flat-filtered-annotated.bedpe
+```
+
+All good. However, we are getting a lot of repetitive records when same fusion hits different transcripts. It's irrelevant for epitope prediction when all transcript fusions produce the same peptides, so should do some filtering based on that.
+
+## pVACfuse on annotated pizzly 
+
+Now running `pVACfuse` (`raijin`):
+
+```
+pvacfuse run \
+    CCR180081_MH18T002P053_RNA-flat-filtered-annotated.bedpe \
+    CCR180081_MH18T002P053_RNA \
+    "HLA-A*33:24,HLA-B*55:29,HLA-B*15:63,HLA-C*07:02,HLA-C*04:61" \
+    NetMHC \
+    pvacfuse_integrate_neo_pizzly \
+    -e 8,9,10,11 \
+    --top-score-metric=lowest \
+    --keep-tmp-files
+```
+
+Doesn't output anything. On the other hand, only one allele HLA-C*07:02 is supported by NetMHC. Trying to add other tools, identical to the pVACseq:
+
+```
+pvacfuse run \
+    CCR180081_MH18T002P053_RNA-flat-filtered-annotated.bedpe \
+    CCR180081_MH18T002P053_RNA \
+    "HLA-A*33:24,HLA-B*55:29,HLA-B*15:63,HLA-C*07:02,HLA-C*04:61" \
+    NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+    pvacfuse_integrate_neo_pizzly_all_callers \
+    -e 8,9,10,11 \
+    --top-score-metric=lowest \
+    --keep-tmp-files
+```
+
+This outputs 337 epitopes in 9 gene fusions, 11 transcript fusions. All are in-frame. The majority is 9-peptide length, however a few are 8. 
 
 
+## INTEGRATE-Neo on pizzly and adding filtering before pVACfuse:
 
+Also running the remaining INTEGRATE-Neo pipeline to compare its results with NetMHC (`spartan`):
+ 
+```
+cat INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1/src/rule.txt
+# rule    $(NF-4)!="NA" && $(NF-6)==1
+fusionBedpeSubsetter \
+    --input-file ../pizzly/CCR180081_MH18T002P053_RNA-flat-filtered-annotated.bedpe \
+    --rule-file INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1/src/rule.txt \
+    --output-file ../pizzly/CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt.bedpe
+# 142(45 unique) -> 53(11 unique)
 
+runNetMHC4WithSMCRNABedpe.py \
+    -o MHC \
+    -a ./INTEGRATE-Neo/Examples/example1/fusion_antigen_out/HLAminer_alleles.tsv \
+    -f ../pizzly/CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt.bedpe \
+    -p 8,9,10,11 \
+    -v ./netmhc_4_0_executable/Linux_x86_64/data/allelelist \
+    -n ./netmhc_4_0_executable/netMHC \
+    -k
 
+runAddNetMHC4Result.py \
+    -b ../pizzly/CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt.bedpe \
+    -a ./INTEGRATE-Neo/Examples/example1/fusion_antigen_out/HLAminer_alleles.tsv \
+    -f ./MHC/netMHC4.0.out.append.txt \
+    -o ../pizzly/CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt-mhc.bedpe
+```
 
+Empty output. Which aligns with an empty output from pVACseq when running NetMHC only.
 
+However, we can steal the subsetting method to perform before pVACfuse run (`raijin`):
 
+```
+pvacfuse run \
+    CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt.bedpe \
+    CCR180081_MH18T002P053_RNA \
+    "HLA-A*33:24,HLA-B*55:29,HLA-B*15:63,HLA-C*07:02,HLA-C*04:61" \
+    NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+    pvacfuse_integrate_neo_pizzly_all_callers_subset \
+    -e 8,9 \
+    --top-score-metric=lowest \
+    --keep-tmp-files
+```
 
-
-
-
-
-
-
-
-
-
+Getting same 337 epitopes, same as before filtering.
 
 
 
