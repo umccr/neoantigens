@@ -1,89 +1,67 @@
-# KRAS-wt patient
+# KRAS-wt patient (MON3)
 
-- [KRAS-wt patient](#kras-wt-patient)
-  - [VCF:](#vcf)
-  - [HLA](#hla)
+- [KRAS-wt patient (MON3)](#kras-wt-patient-mon3)
+  - [Data (raijin):](#data-raijin)
+  - [Preparing data](#preparing-data)
   - [Running pVACseq](#running-pvacseq)
-  - [Coverage](#coverage)
+  - [Expression](#expression)
+- [TODO](#todo)
 
 This patient has over 200k somatic mutations.
 
-Data on spartan:
+## Data (raijin):
 
 ```
-/data/cephfs/punim0010/data/Results/Research-Croagh-KRAS-wt/2018-08-18/umccrised/MON3__PRJ180359_MON3-T/small_variants/MON3__PRJ180359_MON3-T-somatic-ensemble-pon_hardfiltered.vcf.gz
+# Tumor BAM
+/g/data/gx8/data/pVAC/hg38_wgs_samples/final/PRJ170194_GBB10_T/PRJ170194_GBB10_T-ready.bam
+
+# VCF
+/g/data/gx8/data/pVAC/hg38_wgs_samples/final/2018-09-11_2018-09-04T0624_pvac_exploration_WGS-merged/MON3-ensemble-annotated.vcf.gz
+
+# Tumor HLA
+/g/data3/gx8/data/pVAC/hg38_wgs_samples/final/PRJ170194_GBB10_T/PRJ170194_GBB10_T-hla-optitype.csv
+# Normal HLA
+/g/data3/gx8/data/pVAC/hg38_wgs_samples/final/PRJ170195_GBB10_B/PRJ170195_GBB10_B-hla-optitype.csv
 ```
 
-Copying data to Raijin into `/g/data3/gx8/projects/Saveliev_pVACtools/data/kras_wt` 
-
-## VCF:
+## Preparing data
 
 (`Raijin`)
 
+Working at `/g/data3/gx8/projects/Saveliev_pVACtools/MON3`
+
 ```
+# VCF: filtering with panel of normals
+pon_anno data/MON3-ensemble-annotated.vcf.gz -h1 | bcftools view -f.,PASS -o data/MON3-ensemble-pon_anno.h1.pass.vcf
+
+# VCF: annotating
 vep \
---input_file data/kras_wt/MON3__PRJ180359_MON3-T-somatic-ensemble-pon_hardfiltered.vcf.gz \
---format vcf \
---pick \
---output_file data/kras_wt/MON3__PRJ180359_MON3-T-somatic-ensemble-pon_hardfiltered.VEP.vcf \
---vcf --symbol --terms SO \
---plugin Downstream \
---plugin Wildtype \
---cache \
---dir_cache vep_data/GRCh37 \
---assembly GRCh37 \
---offline
-```
+--input_file data/MON3-ensemble-pon_anno.h1.pass.vcf --format vcf \
+--output_file data/MON3-ensemble-pon_anno.h1.pass.VEP.vcf --vcf \
+--pick --symbol --terms SO --plugin Downstream --plugin Wildtype \
+--cache --dir_cache ../vep_data/GRCh38 --assembly GRCh38 --offline
 
-Getting bcftools and extracting the tumor sample:
+# VCF: getting bcftools and extracting the tumor sample:
+bcftools view -s PRJ180359_MON3-T data/MON3-ensemble-pon_anno.h1.pass.VEP.vcf > data/MON3-ensemble-pon_anno.h1.pass.VEP.TUMOR.vcf
 
-```
-bcftools view -s PRJ180359_MON3-T data/kras_wt/MON3__PRJ180359_MON3-T-somatic-ensemble-pon_hardfiltered.VEP.vcf > data/kras_wt/MON3__PRJ180359_MON3-T-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf
-```
-
-## HLA
-
-(`Spartan`)
-
-Realinging to hg38 HLA chromosomes. Build HLA-only reference:
-
-```
-cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/hla_reference
-samtools faidx /data/cephfs/punim0010/local/stable/bcbio/genomes/Hsapiens/hg38/seq/hg38.fa $(cut -f1 /data/cephfs/punim0010/local/stable/bcbio/genomes/Hsapiens/hg38/seq/hg38.fa.fai | grep HLA) > hg38_hla.fa
-bwa index hg38_hla.fa
-```
-
-Getting bwa-kit to re-align:
-
-```
-conda install -c bioconda -y bwakit samtools htsbox  # samtools and htsbox executables must be in the same path as bwakit executable
-```
-
-Running (-S to disable BAM shuffling, -H to make HLA typing, -k to keep tmp files from HLA typing, -o is prefix)
-
-```
-mkdir hla_typing
-run-bwamem -S -H -k -o hla_typing/PRJ180359_MON3-T_bwakit -t 30 ../hla_reference/hg38_hla.fa PRJ180359_MON3-T-ready.bam
-# Will output a shell command. Replace `cat .bam` to avoid EOF errors:
-htsbox bam2fq -O -t PRJ180359_MON3-T-ready.bam \
-  | bwa mem -p -t30 -H'@RG\tID:PRJ180359_MON3-T\tSM:PRJ180359_MON3-T\tPL:illumina\tPU:PRJ180359_MON3-T' -C ../hla_reference/hg38_hla.fa - 2> hla_typing/PRJ180359_MON3-T_bwakit.log.bwamem \
-  | samtools view -1 - > hla_typing/PRJ180359_MON3-T_bwakit.aln.bam
+# HLA - same for tumor and normal:
+HLA-A*03:01,HLA-A*26:01,HLA-B*55:01,HLA-B*38:01,HLA-C*03:03,HLA-C*12:03
 ```
 
 ## Running pVACseq
 
 ```
-VCF=data/kras_wt/MON3__PRJ180359_MON3-T-somatic-ensemble-pon_hardfiltered.VEP.TUMOR.vcf
+VCF=data/MON3-ensemble-pon_anno.h1.pass.VEP.TUMOR.vcf
 SAMPLE=PRJ180359_MON3-T
-HLA_TYPES="HLA-A*02:01,HLA-A*26:01,HLA-B*35:02,HLA-B*18:01,HLA-C*04:01,HLA-C*05:01"
+HLA_TYPES="HLA-A*03:01,HLA-A*26:01,HLA-B*55:01,HLA-B*38:01,HLA-C*03:03,HLA-C*12:03"
 
 pvacseq run \
 $VCF \
 $SAMPLE \
 "$HLA_TYPES" \
-NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
+NetMHCIIpan NetMHCcons SMM SMMPMBEC NNalign SMMalign \
 pvacseq_results \
--e 9,10 \
+-e 8,9,10,11 \
 -t \
 --top-score-metric=lowest \
 --iedb-install-directory /g/data3/gx8/projects/Saveliev_pVACtools \
@@ -93,7 +71,9 @@ pvacseq_results \
 --exclude-NAs
 ```
 
-## Coverage
+## Expression
+# TODO
+
 
 Since we're doing all sensible somatic filtering before passing the VCF into pVACtools, we don't need to do extra filtering here. For example, filtering out normal AF>2% will have trouble with tumor contamination, and want to deal with that before running pVAC. So we will just remove the frequencies and depths from the inputs (except for those for RNA).
 

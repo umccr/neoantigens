@@ -228,7 +228,7 @@ Installing [required VEP plugins](https://pvactools.readthedocs.io/en/latest/pva
 
 ```
 # Installs public Downstream.pm plugin:
-vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream  
+vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream 
 # Installs pVAC's Wildtype.pm plugin:
 pvacseq install_vep_plugin /home/563/vs2870/.vep/Plugins
 ```
@@ -284,7 +284,7 @@ Bcbio does HLA typing only from hg38 alignments. That's probably because hg38 co
 # copy standard cancer workflow template /g/data3/gx8/projects/std_workflow/std_workflow_cancer.yaml and add `hlacaller: optitype` into it
 # copy pbs submitter /g/data3/gx8/projects/std_workflow/run.sh
 # running bcbio on spartan:
-cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/bcbio_hg38/diploid/work
+cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/diploid/bcbio_hg38/diploid/work
 source ~/load_bcbio.sh
 bcbio_nextgen.py -w template std_workflow_cancer.yaml diploid.csv *.fastq.gz
 cp run.sh diploid/work

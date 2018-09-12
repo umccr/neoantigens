@@ -5,7 +5,7 @@
     - [Fusions callers](#fusions-callers)
         - [INTEGRATE](#integrate)
         - [Other fusion calers](#other-fusion-calers)
-        - [Pizzly](#pizzly)
+        - [pizzly](#pizzly)
         - [Oncofuse](#oncofuse)
         - [JAFFA](#jaffa)
         - [Clinker](#clinker)
@@ -102,7 +102,7 @@ Bcbio RNAseq pipeline supports the following tools:
 
 Based on the [discussion](https://github.com/bcbio/bcbio-nextgen/issues/1649), pizzly is the best way to go.
 
-### Pizzly
+### pizzly
 
 Examples are at on spartan:
 
