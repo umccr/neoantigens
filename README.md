@@ -153,6 +153,9 @@ Unfortunately, it requires to upload FASTQ or BAM data on the server, which migh
 [VaxRank](https://github.com/openvax/vaxrank) is enother epitope prediction tool.
 
 * Lack of docs (can refer to https://github.com/openvax/neoantigen-vaccine-pipeline/blob/master/README.md)
-* Uses one predictor at a time
-* Doesn't use fusions (?)
-* Runs from VCF and BAM
+* Uses only one predictor at a time (though have a large choise: mhcflurry,netmhc,netmhc3,netmhc4,netmhccons,netmhccons-iedb,netmhciipan,netmhciipan-iedb,netmhcpan,netmhcpan-iedb,netmhcpan28,netmhcpan3,random,smm-iedb,smm-pmbec-iedb)
+* Can't use fusions
+* Runs from VCF and a BAM
+* HLAs are expected in a weird notation
+
+[Exploring it here](#vaxrank.md).
