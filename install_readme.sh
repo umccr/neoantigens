@@ -2,13 +2,13 @@
 
 ENSEMBL_DIR=/g/data3/gx8/extras/ensembl
 export VEP_DATA=${ENSEMBL_DIR}/vep_data
-export GTF=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.86.gtf.gz
+export GTF=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.86.gtf
 export GENE_PRED=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.86.genePred
 export PRIMARY_FA=${ENSEMBL_DIR}/primary_assembly/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa
 
 # Enviornment
-conda env create -p neoantigens --file environment.yml
-conda activate neoantigens
+conda env create -p nag --file environment.yml
+conda activate nag
 pip install -e .
 
 
@@ -69,8 +69,9 @@ install.sh -o ${CONDA_PREFIX}/bin
 
 # prepare test data
 if [ ! -d ${GENE_PRED} ] ; then
-    wget ftp://ftp.ensembl.org/pub/release-86/gtf/homo_sapiens/Homo_sapiens.GRCh38.86.gtf.gz -O ${GTF}
-    gtfToGenePred -genePredExt -geneNameAsName2 ${GTF} ${GENE_PRED}
+    wget ftp://ftp.ensembl.org/pub/release-86/gtf/homo_sapiens/Homo_sapiens.GRCh38.86.gtf.gz -O ${GTF}.gz
+    gtfToGenePred -genePredExt -geneNameAsName2 ${GTF}.gz ${GENE_PRED}
+    gunzip ${GTF}.gz
 fi
 if [ ! -d ${PRIMARY_FA} ] ; then
     wget ftp://ftp.ensembl.org/pub/release-86/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa.gz -O ${PRIMARY_FA}.gz
@@ -94,5 +95,6 @@ fi
 # bam-readcount cannot install into the same conda env, thus we are creating a separate one:
 conda create -n bam-readcount -c bioconda -c conda-forge bam-readcount
 conda activate bam-readcount
-export BAM_READCOUNT=$(which bam-readcount)
-conda activate neoantigens
+BAM_READCOUNT=$(which bam-readcount)
+conda activate nag
+cp ${BAM_READCOUNT} ${CONDA_PREFIX}/bin

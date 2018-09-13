@@ -38,6 +38,17 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 [NeoepitopePred](#neoepitopepred) is an online-hosted workflow, can run from either single mutations or fusions.
 
 
+## Installation
+
+Refer to [install_readme.sh](install_readme.sh) for installation documentation.
+
+## Usage
+
+```
+nag -o nag_results /g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final diploid_tumor -R /g/data/gx8/data/pVAC/GRCh37_wts_samples/final -r Unknown_B_RNA
+````
+
+
 ## pVACseq
 
 [pVACfuse](https://pvactools.readthedocs.io/en/latest/pvacfuse.html) identifies and prioritizes neoantigens from a list of tumor mutations, and pre-calculated HLA types.

@@ -11,7 +11,7 @@ from ngs_utils import logger
 from ngs_utils.logger import warn, info
 from ngs_utils.utils import set_locale; set_locale()
 from ngs_utils import snakemake_utils
-from neoantigens import package_path
+from nag import package_path
 
 
 @click.command()
@@ -47,6 +47,7 @@ def main(dna_bcbio, dna_sample, target_rule=list(), output_dir=None, rna_bcbio=N
     #########################
 
     cluster_log_dir = ''
+    cluster_param = ''
     if cluster:
         cluster_log_dir = safe_mkdir(join(log_dir, 'cluster'))
         cluster_param = snakemake_utils.make_cluster_cmdl(cluster_log_dir, 'neoantigens')

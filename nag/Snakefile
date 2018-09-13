@@ -7,7 +7,7 @@ from os.path import join, abspath, dirname, isfile, basename, splitext
 from ngs_utils.bcbio import BcbioProject
 from ngs_utils.logger import critical, info, debug, warn, err
 from ngs_utils.file_utils import verify_file
-from hpc_utils.hpc import get_ref_file
+from hpc_utils.hpc import find_loc
 
 
 DNA_BCBIO   = config['dna_bcbio']
@@ -24,9 +24,9 @@ loc = find_loc()
 ENSEMBL_DIR = config.get('ensembl_dir', loc.ensembl_dir)
 VEP_DATA    = config.get('vep_data', loc.vep_data)
 IEDB_DIR    = config.get('iedb_dir', loc.iedb_dir)
-GTF         = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.gtf.gz')
+GTF         = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.gtf')
 GENE_PRED   = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.genePred')
-PRIMARY_FA  = join(ENSEMBL_DIR, 'primary_assembly', 'Homo_sapiens.GRCh37.75.dna_sm.primary_assembly.fa')
+PRIMARY_FA  = join(ENSEMBL_DIR, 'primary_assembly', 'Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa')
 
 
 ################################################
@@ -37,6 +37,7 @@ assert dna_run.genome_build == 'hg38'
 if len(dna_run.batch_by_name) == 0:
     critical(f'Error: could not find a sample with the name {DNA_SNAME}. Check yaml file for available options: {dna_run.bcbio_yaml_fpath}')
 # Batch objects index by tumor sample names
+print(dna_run.batch_by_name)
 batches = [b for b in dna_run.batch_by_name.values() if not b.is_germline() and b.tumor and b.normal]
 assert len(batches) == 1
 batch = batches[0]
@@ -45,7 +46,7 @@ batch = batches[0]
 rule all:
     input: join(out_dir, SNAME + '_from_mutations.tsv'),
            join(out_dir, SNAME + '_from_fusions.tsv'),
-    
+
 rule pvacseq:
     input:  dynamic(join(out_dir, SNAME, 'pvacseq_results' , 'MHC_Class_{mhc_class}', SNAME + '.final.tsv')),
     output: join(out_dir, SNAME + '_from_mutations.tsv')
@@ -90,7 +91,7 @@ rule vcf_pon:
     output: join(work_dir, SNAME, 'somatic.PON.vcf')
     params: genome = 'hg38'
     shell:  'pon_anno -g {params.genome} {input} -h1 | bcftools view -f.,PASS -o {output}'
-    
+
 rule vcf_vep:
     input:  join(work_dir, SNAME, 'somatic.PON.vcf'),
             vep_data = VEP_DATA,
@@ -142,25 +143,24 @@ if RNA_SNAME:
     rule rna_coverage_snps:
         input:  bam = rna_bam,
                 sites = join(work_dir, SNAME, 'somatic_snps_sites.txt'),
-                ref = REF_FA,
+                ref = PRIMARY_FA,
         output: join(work_dir, SNAME, 'rna_snps.readcount'),
-        shell: '$BAM_READCOUNT -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
 
     rule rna_coverage_indels:
         input:  bam = rna_bam,
                 sites = join(work_dir, SNAME, 'somatic_indels_sites.txt'),
-                ref = REF_FA,
+                ref = PRIMARY_FA,
         output: join(work_dir, SNAME, 'rna_indels.readcount'),
-        shell: '$BAM_READCOUNT -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
 
     rule rna_expression:
         input:  bam = rna_bam,
                 gtf = GTF,
-        output: dir    = directory(join(work_dir, SNAME, 'cufflinks')),
-                genes_fpkm       = join(work_dir, SNAME, 'cufflinks', 'genes.fpkm_tracking'),
+        output: genes_fpkm       = join(work_dir, SNAME, 'cufflinks', 'genes.fpkm_tracking'),
                 transcripts_fpkm = join(work_dir, SNAME, 'cufflinks', 'isoforms.fpkm_tracking'),
-
-        shell: 'cufflinks -p 30 -o {output.dir} {input.bam} --GTF {gtf}'
+        params: out_dir = directory(join(work_dir, SNAME, 'cufflinks'))
+        shell: 'cufflinks -p 30 -o {params.out_dir} {input.bam} --GTF {input.gtf}'
 
     rule pvacseq_extra_input:
         input:  gene_expn_file            = join(work_dir, SNAME, 'cufflinks', 'genes.fpkm_tracking'),
@@ -188,7 +188,7 @@ if RNA_SNAME:
 
     rule rna_anno_bedpe:
         input:  bedpe = join(work_dir, SNAME, 'pizzly', SNAME + '.bedpe'),
-                ref_fasta = PRIMARY_ASSEMBLY,
+                ref_fasta = PRIMARY_FA,
                 pred = GENE_PRED,
         params: dinuc = 'GT\tAG'
         output: join(work_dir, SNAME, 'pizzly', SNAME + '.anno.bedpe')
@@ -221,4 +221,3 @@ if RNA_SNAME:
 
 
 
-        
