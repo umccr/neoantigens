@@ -1,0 +1,29 @@
+name: neoantigens
+
+channels:
+  - vladsaveliev
+  - bioconda
+  - conda-forge
+  - defaults
+  - anaconda
+
+dependencies:
+  - python==3.6
+  - snakemake-minimal
+  - bcftools
+  - tabix
+  - ensembl-vep           # to annotate VCF for pVACseq
+  - cmake                 # to install INTEGRATE-Neo
+  - ucsc-gtftogenepred    # to prepare data for fusionBedpeAnnotator
+  - ngs_utils
+  - pyyaml
+  - click
+  - vcfanno               # for PoN
+  - numpy
+  - cufflinks             # for expression data for pVACseq
+  # - pyensembl             # for pizzly to bedpe  # do not install - conda version errors out. install with pip instead.
+    #
+  # Actively developed accompanying libraries
+  - pip:
+    - "--editable=git+https://github.com/umccr/hpc_utils#egg=hpc_utils"
+    - "--editable=git+https://github.com/vladsaveliev/NGS_Utils#egg=ngs_utils"

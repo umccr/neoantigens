@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from setuptools import setup
+from os.path import join
 
 version = '0.1'
 name = 'neoantigens'
@@ -14,5 +15,6 @@ setup(
     packages=[
         name,
     ],
+    scripts=[join(name, 'pizzly_to_bedpe.py')],
     include_package_data=True,
 )
