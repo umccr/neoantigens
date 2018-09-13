@@ -1,18 +1,14 @@
+import os
+
 shell.executable(os.environ.get('SHELL', 'bash'))
 shell.prefix("")
 
-import os
 from os.path import join, abspath, dirname, isfile, basename, splitext
 from ngs_utils.bcbio import BcbioProject
-from ngs_utils.utils import flatten
 from ngs_utils.logger import critical, info, debug, warn, err
 from ngs_utils.file_utils import verify_file
+from hpc_utils.hpc import get_ref_file
 
-
-IEDB_DIR = '/g/data3/gx8/projects/Saveliev_pVACtools'
-VEP_DATA = '/g/data3/gx8/projects/Saveliev_pVACtools/vep_data'
-GTF = 'Homo_sapiens.GRCh38.86.gtf.gz'
-REF_FA = 'Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa'
 
 DNA_BCBIO   = config['dna_bcbio']
 DNA_SNAME   = config.get('dna_sample')
@@ -23,6 +19,14 @@ SNAME = DNA_SNAME or RNA_SNAME
 out_dir   = join('pvac')
 work_dir  = join('pvac', 'work')
 
+
+loc = find_loc()
+ENSEMBL_DIR = config.get('ensembl_dir', loc.ensembl_dir)
+VEP_DATA    = config.get('vep_data', loc.vep_data)
+IEDB_DIR    = config.get('iedb_dir', loc.iedb_dir)
+GTF         = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.gtf.gz')
+GENE_PRED   = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.genePred')
+PRIMARY_FA  = join(ENSEMBL_DIR, 'primary_assembly', 'Homo_sapiens.GRCh37.75.dna_sm.primary_assembly.fa')
 
 
 ################################################
@@ -53,15 +57,14 @@ rule pvacfuse:
     shell:  'cat {input} > {output}'
 
 
-EPITOPE_LENGTHS = '8,9,10,11'
-PREDICTORS = 'NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign'
-IEDB_DIR = '/g/data3/gx8/projects/Saveliev_pVACtools'
+EPITOPE_LENGTHS = '9'  #'8,9,10,11'
+PREDICTORS = 'NNalign'  # 'NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign'
 
 
 def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
     return (f'{tool} run {input} {sample} "$(cat {hla_types})" {PREDICTORS} {output_dir} ' \
             f'-e {EPITOPE_LENGTHS} -t --top-score-metric=lowest --iedb-install-directory {IEDB_DIR} ' \
-            f'--net-chop-method cterm --netmhc-stab --exclude-NAs {other_params}')
+            f'--net-chop-method cterm --netmhc-stab --exclude-NAs {other_params} ')
 
 
 ##########################
@@ -89,13 +92,14 @@ rule vcf_pon:
     shell:  'pon_anno -g {params.genome} {input} -h1 | bcftools view -f.,PASS -o {output}'
     
 rule vcf_vep:
-    input:  join(work_dir, SNAME, 'somatic.PON.vcf')
+    input:  join(work_dir, SNAME, 'somatic.PON.vcf'),
+            vep_data = VEP_DATA,
     output: join(work_dir, SNAME, 'somatic.PON.VEP.vcf')
     params: assembly = 'GRCh38'
     shell:  '''
     vep --input_file {input} --format vcf --output_file {output} --vcf \
     --pick --symbol --terms SO --plugin Downstream --plugin Wildtype \
-    --cache --dir_cache {VEP_DATA}/GRCh38 --assembly {params.assembly} --offline
+    --cache --dir_cache {input.vep_data}/GRCh38 --dir_plugins {input.vep_data}/Plugins --assembly {params.assembly} --offline
     '''
 
 rule vcf_select:
@@ -107,10 +111,11 @@ rule vcf_select:
 rule run_pvacseq:
     input:  vcf               = join(work_dir, SNAME, 'somatic.PON.VEP.SELECT.vcf'),
             hla_types         = join(work_dir, SNAME, 'hla_line.txt'),
+            extra_input       = join(work_dir, SNAME, 'additional_input_file_list.yaml'),
     output: out_files  = dynamic(join(out_dir, SNAME, 'pvacseq_results', 'MHC_Class_{mhc_class}', SNAME + '.final.tsv'))
     params: out_dir  = directory(join(out_dir, SNAME, 'pvacseq_results')),
             trna_vaf = 10,
-    shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}', '--tdna-vaf {params.trna_vaf}')
+    shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}', '--tdna-vaf {params.trna_vaf} -i {input.extra_input}')
 
 t_bam = verify_file(batch.tumor.bam, silent=True)
 if t_bam:
@@ -141,7 +146,7 @@ if RNA_SNAME:
         output: join(work_dir, SNAME, 'rna_snps.readcount'),
         shell: '$BAM_READCOUNT -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
 
-    rule rna_coverage_snps:
+    rule rna_coverage_indels:
         input:  bam = rna_bam,
                 sites = join(work_dir, SNAME, 'somatic_indels_sites.txt'),
                 ref = REF_FA,
@@ -162,7 +167,7 @@ if RNA_SNAME:
                 transcript_expn_file      = join(work_dir, SNAME, 'cufflinks', 'isoforms.fpkm_tracking'),
                 trna_snvs_coverage_file   = join(work_dir, SNAME, 'rna_snps.readcount'),
                 trna_indels_coverage_file = join(work_dir, SNAME, 'rna_indels.readcount'),
-        output: 'additional_input_file_list.yaml'
+        output:                             join(work_dir, SNAME, 'additional_input_file_list.yaml')
         shell:  """
             echo 'gene_expn_file:            {input.gene_expn_file}'            >> {output} &&
             echo 'transcript_expn_file:      {input.transcript_expn_file}'      >> {output} &&
@@ -174,33 +179,37 @@ if RNA_SNAME:
     ### for pVACfuse
 
     rule rna_pizzly_to_bedpe:
-        input:  rna_pizzly_prefix + '-flat-filtered.tsv', 
-                rna_pizzly_prefix + '.json', 
-                rna_pizzly_prefix + '.fusions.fasta',
+        input:  rna_pizzly_prefix + '-flat-filtered.tsv',
+                rna_pizzly_prefix + '.json',
+                rna_pizzly_prefix + '.fusions.fasta'
         params: prefix = rna_pizzly_prefix
         output: join(work_dir, SNAME, 'pizzly', SNAME + '.bedpe')
         shell:  'pizzly_to_bedpe.py {params.prefix} -o {output}'
 
     rule rna_anno_bedpe:
-        input:  join(work_dir, SNAME, 'pizzly', SNAME + '.bedpe')
+        input:  bedpe = join(work_dir, SNAME, 'pizzly', SNAME + '.bedpe'),
+                ref_fasta = PRIMARY_ASSEMBLY,
+                pred = GENE_PRED,
+        params: dinuc = 'GT\tAG'
         output: join(work_dir, SNAME, 'pizzly', SNAME + '.anno.bedpe')
         shell:  """
     fusionBedpeAnnotator \
-    --reference-file Homo_sapiens.GRCh37.75.dna_sm.primary_assembly.fa \
-    --gene-annotation-file Homo_sapiens.GRCh37.75.genePred \
-    --di-file ./INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1/src/difile.txt \
-    --input-file CCR180081_MH18T002P053_RNA-flat-filtered.bedpe \
-    --output-file CCR180081_MH18T002P053_RNA-flat-filtered-annotated.bedpe
+    --reference-file {input.ref_fasta} \
+    --gene-annotation-file {input.pred} \
+    --di-file <(echo {params.dinuc}) \
+    --input-file {input.bedpe} \
+    --output-file {output}
     """
 
     rule rna_subset_bedpe:
-        input:  join(work_dir, SNAME, 'pizzly', SNAME + '.anno.bedpe')
+        input:  bedpe = join(work_dir, SNAME, 'pizzly', SNAME + '.anno.bedpe')
+        params: rule = 'rule\t$(NF-4)!="NA" && $(NF-6)==1'
         output: join(work_dir, SNAME, 'pizzly', SNAME + '.anno.subset.bedpe')
         shell: """
     fusionBedpeSubsetter \
-    --input-file CCR180081_MH18T002P053_RNA-flat-filtered-annotated.bedpe \
-    --rule-file INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1/src/rule.txt \
-    --output-file CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt.bedpe
+    --input-file {input.bedpe} \
+    --rule-file <({params.rule}) \
+    --output-file {output}
     """
 
     rule run_pvacfuse:

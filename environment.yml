@@ -27,3 +27,4 @@ dependencies:
   - pip:
     - "--editable=git+https://github.com/umccr/hpc_utils#egg=hpc_utils"
     - "--editable=git+https://github.com/vladsaveliev/NGS_Utils#egg=ngs_utils"
+    - "--editable=git+https://github.com/umccr/vcf_stuff#egg=vcf_stuff"

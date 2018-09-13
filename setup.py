@@ -12,9 +12,10 @@ setup(
     description='UMCCR neoantigens calling pipeline',
     keywords='bioinformatics',
     license='GPLv3',
-    packages=[
-        name,
+    packages=[name],
+    scripts=[
+        join(name, 'pizzly_to_bedpe.py'),
+        join(name, name + '.py'),
     ],
-    scripts=[join(name, 'pizzly_to_bedpe.py')],
     include_package_data=True,
 )
