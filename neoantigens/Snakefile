@@ -1,25 +1,24 @@
 """
-##################
-## Installation ##
+####################
+### Installation ###
 conda create -n pvac -c vladsaveliev -с bioconda -с conda-forge \
     snakemake-minimal vcfstuff bcftools ensembl-vep cmake ucsc-gtftogenepred \
-    ngs_utils pyyaml click vcfanno tabix numpy
+    ngs_utils pyyaml click vcfanno tabix numpy cufflinks pyensembl
 conda activate pvac
 
 ########
-# VEP
+## VEP
 mkdir vep_data && vep_install -a cf -s homo_sapiens -y GRCh38 -c {VEP_DATA}/GRCh38
 vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream 
 
 pip install pvactools
 pvacseq install_vep_plugin /home/563/vs2870/.vep/Plugins
 
-#######
-# For panel of normals
-# install vcf_stuff
+##########
+## For panel of normals- install vcf_stuff
 
-########
-# IEDB
+###########
+## IEDB
 tar -zxvf IEDB_MHC_I-2.19.1.tar.gz
 # need python2 to run configure :(
 conda deactivate 
@@ -41,7 +40,7 @@ cd mhc_ii
 ./configure.py
 
 ###########
-# INTEGRATE-Neo (for fusionBedpeAnnotator and fusionBedpeSubsetter scripts)
+## INTEGRATE-Neo (for fusionBedpeAnnotator and fusionBedpeSubsetter scripts)
 git clone https://github.com/ChrisMaherLab/INTEGRATE-Neo
 cd INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1
 module load GCC/6.4.0-2.28
@@ -52,13 +51,16 @@ gtfToGenePred -genePredExt -geneNameAsName2 Homo_sapiens.GRCh38.86.gtf.gz Homo_s
 wget ftp://ftp.ensembl.org/pub/release-86/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa.gz
 gunzip Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa.gz
 
-#######################
-## Loading on Raijin ##
+######################
+## pyensembl (for fusions)
+
+#########################
+### Loading on Raijin ###
 cd /g/data3/gx8/projects/Saveliev_pVACtools
 source load.sh
 
-###########
-## Usage ##
+###################
+###### Usage ######
 snakemake -p -s Snakefile pvacseq --directory pvac \
 --config \
 dna_sample=diploid_tumor \
@@ -197,9 +199,19 @@ if RNA_SNAME:
         shell:  ''
 
     rule rna_expression:
-        input:  rna_bam
-        output: join(work_dir, '')
-        shell:  ''
+        input:  bam = rna_bam,
+                gtf = /data/cephfs/punim0010/local/development/bcbio/genomes/Hsapiens/GRCh37/rnaseq/ref-transcripts.gtf
+        output: dir = directory(join(work_dir, SAMPLE + '_cufflinks'))
+        shell:  'cufflinks -p 30 -o {output.dir} {input.bam} --GTF {gtf}'
+
+    rule pvacseq_extra_input:
+        input:  gene_expn_file = 
+                transcript_expn_file = 
+        output: 'additional_input_file_list.yaml'
+        shell:  """
+            echo 'gene_expn_file: {input.gene_expn_file}' >> {output}
+            echo 'transcript_expn_file: {input.transcript_expn_file}' >> {output}
+        """
 
     #################
     ### for pVACfuse
