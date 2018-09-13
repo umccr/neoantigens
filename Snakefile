@@ -2,16 +2,21 @@
 ##################
 ## Installation ##
 conda create -n pvac -c vladsaveliev -с bioconda -с conda-forge \
-    snakemake-minimal vcfstuff bcftools ensembl-vep cmake ucsc-gtftogenepred ngs_utils
+    snakemake-minimal vcfstuff bcftools ensembl-vep cmake ucsc-gtftogenepred \
+    ngs_utils pyyaml click vcfanno tabix numpy
 conda activate pvac
 
-######
+########
 # VEP
-mkdir vep_data && vep_install -a cf -s homo_sapiens -y GRCh38 -c vep_data/GRCh38
+mkdir vep_data && vep_install -a cf -s homo_sapiens -y GRCh38 -c {VEP_DATA}/GRCh38
 vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream 
 
 pip install pvactools
 pvacseq install_vep_plugin /home/563/vs2870/.vep/Plugins
+
+#######
+# For panel of normals
+# install vcf_stuff
 
 ########
 # IEDB
@@ -54,12 +59,12 @@ source load.sh
 
 ###########
 ## Usage ##
-snakemake -p -s Snakefile pvacseq directory=pvac \
-    --config \
-    sample=diploid_tumor \
-    dna_bcbio=/g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final \
-    rna_bcbio=/g/data/gx8/data/pVAC/GRCh37_wts_samples/final \
-    rna_sample=Unknown_B_RNA
+snakemake -p -s Snakefile pvacseq --directory pvac \
+--config \
+dna_sample=diploid_tumor \
+dna_bcbio=/g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final \
+rna_bcbio=/g/data/gx8/data/pVAC/GRCh37_wts_samples/final \
+rna_sample=Unknown_B_RNA
 """
 
 
@@ -74,14 +79,17 @@ shell.executable(os.environ.get('SHELL', 'bash'))
 shell.prefix("")
 
 IEDB_DIR = '/g/data3/gx8/projects/Saveliev_pVACtools'
-
-out_dir = join('pvacseq', SNAME)
-work_dir = join('pvacseq', SNAME, 'work')
+VEP_DATA = '/g/data3/gx8/projects/Saveliev_pVACtools/vep_data'
 
 DNA_BCBIO   = config['dna_bcbio']
-DNA_SNAME   = config.get('dna_sname', SNAME)
-RNA_PROJECT = config.get('rna_project')
+DNA_SNAME   = config.get('dna_sample')
+RNA_BCBIO   = config.get('rna_bcbio')
 RNA_SNAME   = config.get('rna_sample')
+
+SNAME = DNA_SNAME or RNA_SNAME
+out_dir   = join('pvacseq', SNAME)
+work_dir  = join('pvacseq', SNAME, 'work')
+
 
 
 ################################################
@@ -98,15 +106,19 @@ batch = batches[0]
 
 
 rule all:
-    input:
-        pvacseq  = dynamic(join(out_dir, 'pvacseq_results' , 'MHC_Class_{mhc_class}', SNAME + '.final.tsv')),
-        pvacfuse = dynamic(join(out_dir, 'pvacfuse_results', 'MHC_Class_{mhc_class}', SNAME + '.final.tsv'))
-    output:
-        pvacseq  = join(out_dir, SNAME + '_pVACseq_MHC{mhc_class}.tsv'),
-        pvacfuse = join(out_dir, SNAME + '_pVACfuse_MHC{mhc_class}.tsv')
-    shell:
-        'ln -s {input.pvacseq} {output.pvacseq} && ln -s {input.pvacfuse} {output.pvacfuse}'
+    input: join(out_dir, SNAME + '_from_mutations.tsv'),
+           join(out_dir, SNAME + '_from_fusions.tsv'),
     
+rule pvacseq:
+    input:  dynamic(join(out_dir, 'pvacseq_results' , 'MHC_Class_{mhc_class}', SNAME + '.final.tsv')),
+    output: join(out_dir, SNAME + '_from_mutations.tsv')
+    shell:  'cat {input} > {output}'
+
+rule pvacfuse:
+    input:  dynamic(join(out_dir, 'pvacfuse_results' , 'MHC_Class_{mhc_class}', SNAME + '.final.tsv')),
+    output: join(out_dir, SNAME + '_from_fusions.tsv')
+    shell:  'cat {input} > {output}'
+
 
 EPITOPE_LENGTHS = '8,9,10,11'
 PREDICTORS = 'NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign'
@@ -115,24 +127,8 @@ IEDB_DIR = '/g/data3/gx8/projects/Saveliev_pVACtools'
 
 def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
     return (f'{tool} run {input} {sample} "$(cat {hla_types})" {PREDICTORS} {output_dir} ' \
-            f'-e {EPITOPE_LENGTHS} {PREDICTORS} -t --top-score-metric=lowest --iedb-install-directory {IEDB_DIR} ' \
+            f'-e {EPITOPE_LENGTHS} -t --top-score-metric=lowest --iedb-install-directory {IEDB_DIR} ' \
             f'--net-chop-method cterm --netmhc-stab --exclude-NAs {other_params}')
-
-rule pvacseq:
-    input:  vcf        = join(work_dir, 'somatic.PON.VEP.SELECT.vcf'),
-            hla_types  = join(work_dir, 'hla_line.txt'),
-    output: out_dir    = directory(join(out_dir, 'pvacseq_results')),
-            out_files  = dynamic(join(out_dir, 'pvacseq_results', 'MHC_Class_{mhc_class}', SNAME + '.final.tsv'))
-    params: trna_vaf = 10,
-    shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', output.out_dir, '{params.trna_vaf}')
-
-rule pvacfuse:
-    input:  bedpe     = join(work_dir, 'pizzly', rna_sname + '.anno.subset.bedpe'),
-            hla_types = join(work_dir, 'hla_line.txt'),
-    output: out_dir   = directory(join(out_dir, 'pvacfuse_results')),
-            out_files  = dynamic(join(out_dir, 'pvacfuse_results', 'MHC_Class_{mhc_class}', SNAME + '.final.tsv'))
-    params: sample = sname,
-    shell:  _pvac_cmdl('pvacfuse', '{input.bedpe}', SNAME, '{input.hla_types}', output.out_dir)
 
 
 ##########################
@@ -150,29 +146,38 @@ rule prep_hla:
 
 ################
 ### for pVACseq
+
 t_vcf = verify_file(join(dna_run.date_dir, f'{batch.name}-ensemble-annotated.vcf.gz'))
 
 rule vcf_pon:
     input:  t_vcf
     output: join(work_dir, 'somatic.PON.vcf')
-    params: genome = run.genome_build
+    params: genome = 'hg38'
     shell:  'pon_anno -g {params.genome} {input} -h1 | bcftools view -f.,PASS -o {output}'
     
 rule vcf_vep:
     input:  join(work_dir, 'somatic.PON.vcf')
     output: join(work_dir, 'somatic.PON.VEP.vcf')
-    params: assembly = 'GRCh38' if run.genome_build == 'hg38' else 'GRCh37'
+    params: assembly = 'GRCh38'
     shell:  '''
     vep --input_file {input} --format vcf --output_file {output} --vcf \
     --pick --symbol --terms SO --plugin Downstream --plugin Wildtype \
-    --cache --dir_cache ../vep_data/{params.assembly} --assembly {params.assembly} --offline
+    --cache --dir_cache {VEP_DATA}/GRCh38 --assembly {params.assembly} --offline
     '''
 
 rule vcf_select:
     input:  join(work_dir, 'somatic.PON.VEP.vcf')
     output: join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
-    params: sample = sname
+    params: sample = SNAME
     shell:  'bcftools view -s {params.sample} {input} > {output}'
+
+rule run_pvacseq:
+    input:  vcf        = join(work_dir, 'somatic.PON.VEP.SELECT.vcf'),
+            hla_types  = join(work_dir, 'hla_line.txt'),
+    output: out_files  = dynamic(join(out_dir, 'pvacseq_results', 'MHC_Class_{mhc_class}', SNAME + '.final.tsv'))
+    params: out_dir  = directory(join(out_dir, 'pvacseq_results')),
+            trna_vaf = 10,
+    shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}', '--tdna-vaf {params.trna_vaf}')
 
 t_bam = verify_file(batch.tumor.bam, silent=True)
 if t_bam:
@@ -180,7 +185,7 @@ if t_bam:
     # Check coverage?
 
 if RNA_SNAME:
-    rna_run = BcbioProject(rna_bcbio, include_samples=[RNA_SNAME])
+    rna_run = BcbioProject(RNA_BCBIO, include_samples=[RNA_SNAME])
     rna_sample = rna_run.samples[0]
     rna_bam = rna_sample.bam
     rna_tpkm = None
@@ -229,7 +234,12 @@ if RNA_SNAME:
     --output-file CCR180081_MH18T002P053_RNA-flat-filtered-annotated-filt.bedpe
     """
 
-
+    rule run_pvacfuse:
+        input:  bedpe     = join(work_dir, 'pizzly', RNA_SNAME + '.anno.subset.bedpe'),
+                hla_types = join(work_dir, 'hla_line.txt'),
+        output: out_files  = dynamic(join(out_dir, 'pvacfuse_results', 'MHC_Class_{mhc_class}', SNAME + '.final.tsv'))
+        params: out_dir = directory(join(out_dir, 'pvacfuse_results'))
+        shell:  _pvac_cmdl('pvacfuse', '{input.bedpe}', SNAME, '{input.hla_types}', '{params.out_dir}')
 
 
 
