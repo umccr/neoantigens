@@ -64,8 +64,9 @@ fi
 ########################
 ### Compile INTEGRATE-Neo (for fusionBedpeAnnotator and fusionBedpeSubsetter scripts)
 cd INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1  # from git clone https://github.com/ChrisMaherLab/INTEGRATE-Neo
-module load GCC/6.4.0-2.28  # on raijin
-install.sh -o ${CONDA_PREFIX}/bin
+module load gcc/6.2.0  # on raijin
+module load cmake      # unless installed with conda
+sh install.sh -o ${CONDA_PREFIX}/bin
 
 # prepare test data
 if [ ! -d ${GENE_PRED} ] ; then

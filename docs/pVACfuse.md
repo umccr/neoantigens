@@ -249,9 +249,9 @@ Installing (spartan)
 cd /data/cephfs/punim0010/projects/Saveliev_pVACtools/fusion/INTEGRATE-NEO
 git clone https://github.com/ChrisMaherLab/INTEGRATE-Neo
 cd INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1
-module load CMake  # or `conda install cmake`
-module load GCC/6.4.0-2.28
-./install.sh -o /data/cephfs/punim0010/extras/vlad/miniconda/envs/fusions/bin
+module load cmake      # raijin; on spartan, use cmake; or just `conda install cmake`
+module load gcc/6.2.0  # raijin; on spartan, use GCC/6.4.0-2.28
+./install.sh -o ${CONDA_PREFIX}/bin
 ```
 
 Running.
