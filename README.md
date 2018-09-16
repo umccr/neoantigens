@@ -7,6 +7,9 @@ Anti-tumor T cells recognize tumor somatic mutations, translated as single amino
     - [Approach](#approach)
     - [Prediction methods](#prediction-methods)
     - [Ranking tools](#ranking-tools)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Processing test samples](#processing-test-samples)
 - [pVACseq](#pvacseq)
 - [wt_KRAS patient](#wtkras-patient)
 - [pVACfuse](#pvacfuse)
@@ -40,14 +43,28 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 
 ## Installation
 
-Refer to [install_readme.sh](install_readme.sh) for installation documentation.
+Refer to [install_readme.sh](install_readme.sh) for instructions.
 
 ## Usage
 
 ```
-nag -o nag_results /g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final diploid_tumor -R /g/data/gx8/data/pVAC/GRCh37_wts_samples/final -r Unknown_B_RNA
-````
+nag -o OUTPUT_DIR \
+    BCBIO_DNA_RUN \
+    BCBIO_DNA_SAMPLE_NAME \
+    -R BCBIO_RNA_RUN \
+    -r BCBIO_RNA_SAMPLE_NAME
 
+# Example for the NeverResponder:
+nag -o nag_results \
+    /g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final \
+    diploid_tumor \
+    -R /g/data/gx8/data/pVAC/hg38_wts_samples/final \
+    -r Unknown_B_RNA
+```
+
+## Processing test samples
+
+Processing [samples that have WTS and WGS bcbio runs against hg38](https://docs.google.com/spreadsheets/d/1j6F-nVH_1GJExzK23VWaZi26UQCd1SqKh0cjxvl4hFU/edit#gid=0). Command lines are in the spreadsheet's last column.
 
 ## pVACseq
 
@@ -89,7 +106,8 @@ pvacseq_results \
 --trna-vaf 10 \
 --net-chop-method cterm \
 --netmhc-stab \
---exclude-NAs
+--exclude-NAs \
+--keep-tmp-files
 ```
 
 For offline runs, we would omit `--net-chop-method cterm` and `--netmhc-stab`
@@ -145,7 +163,8 @@ pvacfuse run \
     NNalign NetMHCIIpan NetMHCcons SMM SMMPMBEC SMMalign \
     pvacfuse_out \
     -e 8,9 \
-    --top-score-metric=lowest
+    --top-score-metric=lowest \
+    --keep-tmp-files
 ```
 
 ## NeoepitopePred
