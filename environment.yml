@@ -21,7 +21,7 @@ dependencies:
   - vcfanno               # for PoN
   - numpy
   - cufflinks             # for expression data for pVACseq
-  # - pyensembl             # for pizzly to bedpe  # do not install - conda version errors out. install with pip instead.
+  # - pyensembl           # install with pip - conda version errors out (also needs gtfparse>1.1)
     #
   # Actively developed accompanying libraries
   - pip:

@@ -1,9 +1,10 @@
 # Don't source it. Follow carefully.
 
+ENSEMBL_VERSION="91"
 ENSEMBL_DIR=/g/data3/gx8/extras/ensembl
 export VEP_DATA=${ENSEMBL_DIR}/vep_data
-export GTF=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.86.gtf
-export GENE_PRED=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.86.genePred
+export GTF=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.$ENSEMBL_VERSION.gtf
+export GENE_PRED=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.$ENSEMBL_VERSION.genePred
 export PRIMARY_FA=${ENSEMBL_DIR}/primary_assembly/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa
 
 # Enviornment
@@ -24,14 +25,14 @@ fi
 ########################
 ### Install pVACtools
 pip install pvactools
-pvacseq install_vep_plugin ${VEP_DATA}/Plugins
+pvacseq install_vep_plugin $VEP_DATA/Plugins
 
 
 ########################
 ### Download local IEDB
 export IEDB_DIR=/g/data3/gx8/extras/iedb
-if [ ! -d ${IEDB_DIR} ] ; then
-    cd ${IEDB_DIR}
+if [ ! -d $IEDB_DIR ] ; then
+    cd $IEDB_DIR
     # Download from [http://tools.iedb.org/mhcii/download](http://tools.iedb.org/mhcii/download/):
     # - click `MHC Class I`
     # - click `To download the tools in tar.gz format: Agree and Download`
@@ -66,27 +67,29 @@ fi
 cd INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1  # from git clone https://github.com/ChrisMaherLab/INTEGRATE-Neo
 module load gcc/6.2.0  # on raijin
 module load cmake      # unless installed with conda
-sh install.sh -o ${CONDA_PREFIX}/bin
+sh install.sh -o $CONDA_PREFIX/bin
 
 # prepare test data
-if [ ! -d ${GENE_PRED} ] ; then
-    wget ftp://ftp.ensembl.org/pub/release-86/gtf/homo_sapiens/Homo_sapiens.GRCh38.86.gtf.gz -O ${GTF}.gz
-    gtfToGenePred -genePredExt -geneNameAsName2 ${GTF}.gz ${GENE_PRED}
-    gunzip ${GTF}.gz
+if [ ! -e $GENE_PRED ] ; then
+    wget ftp://ftp.ensembl.org/pub/release-$ENSEMBL_VERSION/gtf/homo_sapiens/Homo_sapiens.GRCh38.$ENSEMBL_VERSION.gtf.gz -O ${GTF}.gz
+    gtfToGenePred -genePredExt -geneNameAsName2 $GTF.gz $GENE_PRED
+    gunzip $GTF.gz
 fi
-if [ ! -d ${PRIMARY_FA} ] ; then
-    wget ftp://ftp.ensembl.org/pub/release-86/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa.gz -O ${PRIMARY_FA}.gz
-    gunzip ${PRIMARY_FA}.gz
+if [ ! -e $PRIMARY_FA ] ; then
+    mkdir -p $(dirname $PRIMARY_FA)
+    wget ftp://ftp.ensembl.org/pub/release-$ENSEMBL_VERSION/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa.gz -O $PRIMARY_FA.gz
+    gunzip $PRIMARY_FA.gz
 fi
 
 
 ########################
 ### pyensembl (to convert pizzly to bedpe)
-pip install pyensembl
-export PYENSEMBL_CACHE_DIR=${ENSEMBL_DIR}
-if [ ! -d ${PYENSEMBL_CACHE_DIR}/pyensembl ] ; then
+pip install "gtfparse>=1.1" pyensembl
+git clone https://github.com/vladsaveliev/pyensembl ; cd pyensembl ; pip install . ;  cd ..
+export PYENSEMBL_CACHE_DIR=$ENSEMBL_DIR
+if [ ! -d $PYENSEMBL_CACHE_DIR/pyensembl ] ; then
     # In 2 steps: first on loging node to make it download the files:
-    pyensembl install --release 86 --species human
+    pyensembl install --release $ENSEMBL_VERSION --species human
     # when it starts `Reading GTF from`, go into a worker node and run again.
 fi
 
@@ -98,4 +101,4 @@ conda create -n bam-readcount -c bioconda -c conda-forge bam-readcount
 conda activate bam-readcount
 BAM_READCOUNT=$(which bam-readcount)
 conda activate nag
-cp ${BAM_READCOUNT} ${CONDA_PREFIX}/bin
+cp $BAM_READCOUNT $CONDA_PREFIX/bin
