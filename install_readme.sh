@@ -3,9 +3,6 @@
 ENSEMBL_VERSION="91"
 ENSEMBL_DIR=/g/data3/gx8/extras/ensembl
 export VEP_DATA=${ENSEMBL_DIR}/vep_data
-export GTF=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.$ENSEMBL_VERSION.gtf
-export GENE_PRED=${ENSEMBL_DIR}/Homo_sapiens.GRCh38.$ENSEMBL_VERSION.genePred
-export PRIMARY_FA=${ENSEMBL_DIR}/primary_assembly/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa
 
 # Enviornment
 conda env create -p nag --file environment.yml
@@ -59,26 +56,6 @@ if [ ! -d $IEDB_DIR ] ; then
     ./configure.py
 
     conda activate pvac
-fi
-
-
-########################
-### Compile INTEGRATE-Neo (for fusionBedpeAnnotator and fusionBedpeSubsetter scripts)
-cd INTEGRATE-Neo/INTEGRATE-Neo-V-1.2.1  # from git clone https://github.com/ChrisMaherLab/INTEGRATE-Neo
-module load gcc/6.2.0  # on raijin
-module load cmake      # unless installed with conda
-sh install.sh -o $CONDA_PREFIX/bin
-
-# prepare test data
-if [ ! -e $GENE_PRED ] ; then
-    wget ftp://ftp.ensembl.org/pub/release-$ENSEMBL_VERSION/gtf/homo_sapiens/Homo_sapiens.GRCh38.$ENSEMBL_VERSION.gtf.gz -O ${GTF}.gz
-    gtfToGenePred -genePredExt -geneNameAsName2 $GTF.gz $GENE_PRED
-    gunzip $GTF.gz
-fi
-if [ ! -e $PRIMARY_FA ] ; then
-    mkdir -p $(dirname $PRIMARY_FA)
-    wget ftp://ftp.ensembl.org/pub/release-$ENSEMBL_VERSION/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa.gz -O $PRIMARY_FA.gz
-    gunzip $PRIMARY_FA.gz
 fi
 
 

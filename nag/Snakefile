@@ -20,11 +20,9 @@ work_dir      = 'work'
 
 loc = find_loc()
 ENSEMBL_DIR   = config.get('ensembl_dir', loc.ensembl_dir)
+ENSEMBL_VERS  = config.get('ensembl_release', 91)
 VEP_DATA      = config.get('vep_data', loc.vep_data)
 IEDB_DIR      = config.get('iedb_dir', loc.iedb_dir)
-GTF           = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.gtf')
-GENE_PRED     = join(ENSEMBL_DIR, 'Homo_sapiens.GRCh38.86.genePred')
-PRIMARY_FA    = join(ENSEMBL_DIR, 'primary_assembly', 'Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa')
 REF_FA        = config.get('ref_fa', get_ref_file('hg38', loc=loc))
 USE_REMOTE_DB = config.get('internet_is_on', False)
 
@@ -44,6 +42,8 @@ batch = batches[0]
 
 EPITOPE_LENGTHS = '8,9,10,11'
 PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'
+PEPTIDE_LENGTH = 31  # MHC_I wants 21, MHC_II wants 31
+MIN_RNA_VAF = 10  # 10 percent
 
 
 rule all:
@@ -59,8 +59,8 @@ rule pvacfuse:
 
 def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
     cmd = (f'{tool} run {input} {sample} "$(cat {hla_types})" {PREDICTORS} {output_dir} '
-           f'-e {EPITOPE_LENGTHS} --top-score-metric=lowest -t --iedb-install-directory {IEDB_DIR} '
-           f'--keep-tmp-files {other_params}')
+           f'-e {EPITOPE_LENGTHS} --top-score-metric=lowest -t '
+           f'--iedb-install-directory {IEDB_DIR} --keep-tmp-files {other_params} ')
     if USE_REMOTE_DB:
         cmd += f' --net-chop-method cterm --netmhc-stab --exclude-NAs'
     return cmd
@@ -71,16 +71,16 @@ rule run_pvacseq:
             extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml')
     output: dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.tsv')
     params: out_dir = 'pvacseq_results',
-            trna_vaf = 10
+            trna_vaf = MIN_RNA_VAF,
     shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}',\
                        '--tdna-vaf {params.trna_vaf} -i {input.extra_input}')
 
 rule run_pvacfuse:
-    input:  bedpe       = join(work_dir, 'pizzly', SNAME + '.anno.subset.bedpe'),
+    input:  bedpe       =  join(work_dir, 'pizzly', SNAME + '.bedpe'),
             hla_types   = join(work_dir, 'hla_line.txt')
     output: dynamic('pvacfuse_results/MHC_Class_{cls}/{SNAME}.final.tsv')
     params: out_dir = 'pvacfuse_results'
-    shell:  _pvac_cmdl('pvacfuse', '{input.bedpe}', SNAME, '{input.hla_types}', '{params.out_dir}')
+    shell:  _pvac_cmdl('pvacfuse', '<(grep -v ^chr {input.bedpe})', SNAME, '{input.hla_types}', '{params.out_dir}')
 
 ################
 ### Extra inputs files
@@ -207,37 +207,9 @@ rule rna_pizzly_to_bedpe:
     input:  rna_pizzly_prefix + '-flat-filtered.tsv',
             rna_pizzly_prefix + '.json',
             rna_pizzly_prefix + '.fusions.fasta'
-    params: prefix = rna_pizzly_prefix
+    params: prefix = rna_pizzly_prefix,
+            peptide_flanking_len = PEPTIDE_LENGTH // 2,
     output: join(work_dir, 'pizzly', SNAME + '.bedpe')
-    shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output}'
-            ' && [ -s {output} ]'
-
-rule rna_anno_bedpe:
-    input:  bedpe = join(work_dir, 'pizzly', SNAME + '.bedpe'),
-            ref_fasta = PRIMARY_FA,
-            pred = GENE_PRED,
-    params: dinuc = r'"GT\tAG"'
-    output: join(work_dir, 'pizzly', SNAME + '.anno.bedpe')
-    shell:  """
-fusionBedpeAnnotator \
---reference-file {input.ref_fasta} \
---gene-annotation-file {input.pred} \
---di-file <(echo {params.dinuc}) \
---input-file {input.bedpe} \
---output-file {output} \
- && [ -s {output} ]
-"""
-
-rule rna_subset_bedpe:
-    input:  bedpe = join(work_dir, 'pizzly', SNAME + '.anno.bedpe')
-    params: rule = """'rule\t$(NF-4)!="NA" && $(NF-6)==1'"""
-    output: join(work_dir, 'pizzly', SNAME + '.anno.subset.bedpe')
-    shell: """
-fusionBedpeSubsetter \
---input-file {input.bedpe} \
---rule-file <(echo {params.rule}) \
---output-file {output} \
- && [ -s {output} ]
-"""
-
+    shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
+            '-p {params.peptide_flanking_len} && [ -s {output} ]'
 

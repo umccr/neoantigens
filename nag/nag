@@ -25,6 +25,7 @@ from nag import package_path
 @click.option('-s', '--sample')
 @click.option('-R', '--rna-bcbio', type=click.Path())
 @click.option('-r', '--rna-sample')
+@click.option('--ensembl-release')
 
 @click.option('-j', '--jobs', 'jobs', default=1, help='Maximum number of cores to use at single time (works both for '
               'local and cluster runs)')
@@ -33,7 +34,7 @@ from nag import package_path
 @click.option('--restart-times', default=1, help='Propagaded to snakemake.')
 
 def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None, rna_bcbio=None, rna_sample=None,
-         jobs=None, cluster=False, unlock=False, restart_times=None,
+         ensembl_release=None, jobs=None, cluster=False, unlock=False, restart_times=None,
     ):
     output_dir = output_dir or 'neoantigens'
     output_dir = safe_mkdir(abspath(output_dir))
@@ -48,6 +49,8 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
         conf['rna_bcbio'] = rna_bcbio
     if sample:
         conf['sample'] = sample
+    if ensembl_release:
+        conf['ensembl_release'] = ensembl_release
 
     #########################
     #### Setting cluster ####
