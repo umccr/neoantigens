@@ -1,3 +1,5 @@
 .DS_Store
 pizzly_examples/CCR180081_MH18T002P053_RNA.fusions.fasta
 pizzly_examples/CCR180081_MH18T002P053_RNA.json
+
+*.egg-info
