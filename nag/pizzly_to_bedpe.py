@@ -12,6 +12,7 @@ from Bio.Alphabet import IUPAC
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
+from Bio.Data import CodonTable
 from memoized_property import memoized_property
 
 
@@ -448,12 +449,11 @@ class Fusion:
         transl_start = self.side_5p.trx.first_start_codon_spliced_offset
         if self.side_5p.bp_offset < transl_start:  # if the bp (t_end) falls before the beginning of translation
             return
-        cds_seq_5p = self.side_5p.trx.sequence[transl_start:self.side_5p.bp_offset]
+        cds_seq_5p = Seq(self.side_5p.trx.sequence[transl_start:self.side_5p.bp_offset])
         fs_5p = len(cds_seq_5p) % 3
         if fs_5p != 0: logger.debug(f'  Frameshift of 5p sequence: {fs_5p}')
 
-        # 5' peptide
-        pep_5p = Seq(_trim3(cds_seq_5p)).translate()
+        pep_5p = _translate_from_start_codon(cds_seq_5p, to_stop=False, name='5\' fasta')
         if '*' in pep_5p:
             logger.info(f'   5\' petide has a STOP codon before breakpoint. Skipping.')
             assert min(self.side_5p.trx.stop_codon_spliced_offsets) < self.side_5p.bp_offset, \
@@ -463,7 +463,7 @@ class Fusion:
         # 3' fasta. Getting full sequence in case if it's an FS event that will produce a novel stop codon
         fs_3p = (self.side_3p.bp_offset - self.side_3p.trx.first_start_codon_spliced_offset) % 3
         if fs_3p != 0: logger.debug(f'  Frameshift of 3p sequence: {fs_3p}')
-        seq_3p = self.side_3p.trx.sequence[self.side_3p.bp_offset:]
+        seq_3p = Seq(self.side_3p.trx.sequence[self.side_3p.bp_offset:])
 
         # checking if the fusion produced a frameshift
         fusion_fs = (fs_5p + fs_3p) % 3
@@ -475,7 +475,7 @@ class Fusion:
         if junction_codon:  # == fs_5p != 0:
             start_3p_from = 3 - fs_5p
             junction_codon += seq_3p[:start_3p_from]
-            junction_pep = Seq(junction_codon).translate()
+            junction_pep = junction_codon.translate()
             if junction_pep == '*':
                 logger.info(f'   Junction codon is STOP, skipping')
                 return
@@ -484,14 +484,14 @@ class Fusion:
             start_3p_from = 0
 
         # 3' peptide
-        pep_3p = Seq(_trim3(seq_3p[start_3p_from:])).translate()
+        pep_3p = _trim3(seq_3p[start_3p_from:]).translate()
         if pep_3p[0] == '*':
             logger.info(f'   The new 3p peptide starts from STOP, skipping')
             return
         if '*' not in pep_3p:
             logger.info(f'   No STOP codon in novel peptide, skipping')
             return
-        pep_3p = Seq(_trim3(seq_3p[start_3p_from:])).translate(to_stop=True)
+        pep_3p = _trim3(seq_3p[start_3p_from:]).translate(to_stop=True)
 
         logger.debug(f'  5p peptide (len={len(pep_5p)}): '
                      f'{pep_5p if len(pep_5p) < 99 else pep_5p[:48] + "..." + pep_5p[-48:]}')
@@ -516,8 +516,9 @@ class Fusion:
         self.num_of_nt_in_the_break = fs_5p
 
     def __repr__(self):
-        return f'{self.side_5p.trx.id}({self.side_5p.trx.strand}):{self.side_5p.bp_offset} >> ' \
-               f'{self.side_3p.trx.id}({self.side_3p.trx.strand}):{self.side_3p.bp_offset}'
+        return f'Fusion(' \
+               f'{self.side_5p.trx.id}({self.side_5p.trx.strand}):{self.side_5p.bp_offset} >> ' \
+               f'{self.side_3p.trx.id}({self.side_3p.trx.strand}):{self.side_3p.bp_offset})'
 
 
 def _check_fusion_fasta(pizzly_fasta_rec, fusion):
@@ -545,29 +546,64 @@ def _trim3(seq):
     return seq[:len(seq) // 3 * 3]
 
 
+def _translate_from_start_codon(seq, to_stop, name):
+    """ Seq must start with START. Translates until STOP.
+    """
+    codon_table = CodonTable.unambiguous_dna_by_name['Standard']
+    if str(seq[:3]).upper() not in codon_table.start_codons:
+        logger.critical(name + ' expected to start with a START codon: ' + seq[:3])
+    pep_5p = _trim3(seq).translate(to_stop=to_stop)
+    # for the case if the peptide starts with an alternative start codon, replace it with M
+    return 'M' + pep_5p[1:]
+
+
 def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
     """ We can also calculate peptides directly from Pizzly fasta. Making sure we would produce identical peptides.
         In the future, we can ommit other logic and use Pizzly fasta directly.
     """
     pizzly_seq = pizzly_fasta_rec.seq
     start_codon_offset = fusion.side_5p.trx.first_start_codon_spliced_offset
+    logger.debug(f'start_codon_offset: {start_codon_offset}')
     pizzly_seq = pizzly_seq[start_codon_offset:]
     bp_offset = fusion.side_5p.bp_offset - start_codon_offset
+    logger.debug(f'bp_offset from start codon: {bp_offset}')
     if bp_offset <= 0:
         return
 
+    pep = _translate_from_start_codon(pizzly_seq, to_stop=True, name='Pizzly fasta')
+    assert pep[0] == 'M'
+
     fus_pos = bp_offset // 3
-    pep = _trim3(pizzly_seq).translate(to_stop=True)
     if len(pep) < fus_pos:
         return
 
-    if peptide_flanking_len:
-        pep = pep[fus_pos-peptide_flanking_len:fus_pos+peptide_flanking_len+1]
-        fus_pos = peptide_flanking_len
+    fs_5p = bp_offset % 3
+    fs_3p = (fusion.side_3p.bp_offset - fusion.side_3p.trx.first_start_codon_spliced_offset) % 3
+    fusion_fs = (fs_5p + fs_3p) % 3
+    if fusion_fs != 0: logger.debug(f"  Result fusion frameshift:  {fusion_fs}")
+    is_inframe = fusion_fs == 0
+    assert is_inframe == fusion.is_inframe, (is_inframe, fusion.is_inframe)
 
-    assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
+    if peptide_flanking_len:
+        if is_inframe:
+            logger.debug(f'{fusion} is in frame')
+            pep = pep[fus_pos-peptide_flanking_len:fus_pos+peptide_flanking_len+1]
+        else:
+            logger.debug(f'{fusion} is off-frame')
+            pep = pep[fus_pos-peptide_flanking_len:]
+        fus_pos = peptide_flanking_len
+        logger.debug(f'fusion position in trimmed peptide: {fus_pos}')
+
     assert fus_pos == fusion.fusion_offset_in_peptide, (fus_pos, fusion.fusion_offset_in_peptide)
+    assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
 
 
 if __name__ == '__main__':
     main()
+
+
+
+
+
+
+
