@@ -170,21 +170,19 @@ if RNA_SNAME:
 rule extract_snps:
     input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
     output: join(work_dir, 'somatic_snps_sites.txt'),
-    shell: """
+    shell:  """
 bcftools view -v snps {input} | 
-bcftools query -f "%CHROM \t %POS \n" | 
-awk '{{ OFS="\t" }} {{ print $1,$2-1,$2 }}'
-> {output}
+bcftools query -f "%CHROM \\t %POS \\n" | 
+awk '{{ OFS="\\t" }} {{ print $1,$2-1,$2 }}' > {output}
 """
 
 rule extract_indels:
     input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
     output: join(work_dir, 'somatic_indels_sites.txt'),
-    shell: """
+    shell:  """
 bcftools view -v indels {input} | 
-bcftools query -f "%CHROM \t %POS \t %LEN \n" | 
-awk '{{ OFS="\t" }}{{ print $1,$2-1,$2+$3-1 }}' 
-> {output}
+bcftools query -f "%CHROM \\t %POS \\t %LEN \\n" | 
+awk '{{ OFS="\\t" }}{{ print $1,$2-1,$2+$3-1 }}' > {output}
 """
 
 rule rna_coverage_snps:
