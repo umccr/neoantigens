@@ -6,6 +6,7 @@ import json
 import csv
 import click
 from ngs_utils import logger
+from ngs_utils.call_process import run_simple
 from pyensembl import EnsemblRelease, Transcript
 from Bio.Alphabet import IUPAC
 from Bio import SeqIO
@@ -81,14 +82,14 @@ cat sample.bedpe
 @click.option('--output-json', type=click.Path(), help='Filtered JSON file having only fusions from bedpe')
 @click.option('-s', '--support', help='Minimal read support to keep an event', default=5)
 @click.option('-e', '--ensembl-release', default=91, help='Set to 75 for GRCh37')
-@click.option('-p', '--peptide-flanking-len', default=15,
-              help='To form the fusion peptide, take this number of aminoacids from each side of the fusion. '
-                   'Doesn\'t include the junction peptide, so the resulting peptide length will be p*2+1.')
+@click.option('-p', '--peptide-flanking-len', type=int,
+              help='Reported only a part of fusion peptide around the breakpoint. Take `p` number of aminoacids '
+                   'from each side of the fusion. Plus the junction peptide (the resulting peptide length will be `p`*2+1).')
 @click.option('-d', '--debug', is_flag=True)
 # @click.option('--keep-noncoding', is_flag=True,
 #               help='Keep fusions that do not produce a peptide around the junction')
-def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None, ensembl_release=None, peptide_flanking_len=None,
-         debug=False):
+def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None, ensembl_release=None,
+         peptide_flanking_len=None, debug=False):
 
     pizzly_flat_filt_fpath = prefix + '-flat-filtered.tsv'
     pizzly_json_fpath = prefix + '.json'
@@ -204,6 +205,8 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None
                 _check_fusion_fasta(pizzly_fasta_rec, fusion)
                 filt_fasta_records.append(pizzly_fasta_rec)
 
+                _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len)
+
             if not bedpe_entries:
                 logger.warn(f'All transcript events filtered out for fusion {gene_a}>>{gene_b}, skipping')
             else:
@@ -229,15 +232,18 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None
 
 
 def _test_pvac(bedpe_path):
+    pvac_bedpe = bedpe_path.replace('.bedpe', '.pvac.bedpe')
     pvac_tsv_path = bedpe_path.replace('.bedpe', '.pvac.tsv')
     pvac_fasta_fpath = bedpe_path.replace('.bedpe', '.pvac.fasta')
     pvac_fasta_key_fpath = bedpe_path.replace('.bedpe', '.pvac.fasta_key')
+
+    run_simple(f'grep -v ^chr {bedpe_path} > {pvac_bedpe}')
 
     from lib.fasta_generator import FusionFastaGenerator
     from lib.pipeline import MHCIPipeline
 
     class_i_arguments = {
-        'input_file':             bedpe_path,
+        'input_file':             pvac_bedpe,
         'input_file_type':       'bedpe',
         'sample_name':            bedpe_path.replace('.bedpe', '.pvac'),
         'alleles':               'HLA-A*02:01',
@@ -245,15 +251,23 @@ def _test_pvac(bedpe_path):
         'output_dir':             dirname(bedpe_path),
         'epitope_lengths':        11,
     }
-    if isfile(pvac_tsv_path):
-        os.remove(pvac_tsv_path)
+    if isfile(pvac_tsv_path): os.remove(pvac_tsv_path)
     pipeline = MHCIPipeline(**class_i_arguments)
     pipeline.convert_vcf()
 
     generate_fasta_params = {
         'input_file'                : pvac_tsv_path,
-        'peptide_sequence_length'   : 21,
         'epitope_length'            : 11,
+        'output_file'               : pvac_fasta_fpath,
+        'output_key_file'           : pvac_fasta_key_fpath,
+        'downstream_sequence_length': 1000,
+    }
+    fasta_generator = FusionFastaGenerator(**generate_fasta_params)
+    fasta_generator.execute()
+
+    generate_fasta_params = {
+        'input_file'                : pvac_tsv_path,
+        'epitope_length'            : 8,
         'output_file'               : pvac_fasta_fpath,
         'output_key_file'           : pvac_fasta_key_fpath,
         'downstream_sequence_length': 1000,
@@ -367,7 +381,7 @@ class Fusion:
         side_3p = FusionSide(trx_3p, bp_offset_3p)
         return Fusion(side_5p, side_3p, t_event['support'])
 
-    def to_bedpe(self, peptide_flanking_len):
+    def to_bedpe(self, peptide_flanking_len=None):
         bp_genomic_pos_5p, bp_in_intron_5p = self.side_5p.calc_genomic_bp_offset()
         if bp_genomic_pos_5p == -1:
             logger.warn(f'  Fusion in {self} takes the whole 5p transcript {self.side_5p.trx.id}. That\'s suspicious, so we are skipping it.')
@@ -427,12 +441,8 @@ class Fusion:
         seq = self.side_5p.trx.sequence[:self.side_5p.bp_offset] + self.side_3p.trx.sequence[self.side_3p.bp_offset:]
         return Seq(seq, IUPAC.unambiguous_dna)
 
-    def make_peptide(self, peptide_flanking_len):
+    def make_peptide(self, peptide_flanking_len=None):
         logger.debug(f'Translating {self}')
-
-        # trim seq to be a length of a multiple of 3 - to aboid BioPython translation warning about trailing nt
-        def trim3(seq):
-            return seq[:len(seq) // 3 * 3]
 
         # 5' fasta
         transl_start = self.side_5p.trx.first_start_codon_spliced_offset
@@ -443,7 +453,7 @@ class Fusion:
         if fs_5p != 0: logger.debug(f'  Frameshift of 5p sequence: {fs_5p}')
 
         # 5' peptide
-        pep_5p = Seq(trim3(cds_seq_5p)).translate()
+        pep_5p = Seq(_trim3(cds_seq_5p)).translate()
         if '*' in pep_5p:
             logger.info(f'   5\' petide has a STOP codon before breakpoint. Skipping.')
             assert min(self.side_5p.trx.stop_codon_spliced_offsets) < self.side_5p.bp_offset, \
@@ -474,14 +484,14 @@ class Fusion:
             start_3p_from = 0
 
         # 3' peptide
-        pep_3p = Seq(trim3(seq_3p[start_3p_from:])).translate()
+        pep_3p = Seq(_trim3(seq_3p[start_3p_from:])).translate()
         if pep_3p[0] == '*':
             logger.info(f'   The new 3p peptide starts from STOP, skipping')
             return
         if '*' not in pep_3p:
             logger.info(f'   No STOP codon in novel peptide, skipping')
             return
-        pep_3p = Seq(trim3(seq_3p[start_3p_from:])).translate(to_stop=True)
+        pep_3p = Seq(_trim3(seq_3p[start_3p_from:])).translate(to_stop=True)
 
         logger.debug(f'  5p peptide (len={len(pep_5p)}): '
                      f'{pep_5p if len(pep_5p) < 99 else pep_5p[:48] + "..." + pep_5p[-48:]}')
@@ -490,18 +500,19 @@ class Fusion:
         logger.debug(f'  3p peptide{f" (shifted by {fusion_fs} from original)" if fusion_fs else ""} (len={len(pep_3p)}): '
                      f'{pep_3p if len(pep_3p) < 99 else pep_3p[:48] + "..." + pep_3p[-48:]}')
 
-        # full fusion peptide.
-        # taking $(peptide_chunk_len) aminoacids from 5':
-        reported_pep_5p = pep_5p[-peptide_flanking_len:]
-        # trying to make the total peptide to be of length $(peptide_chunk_len)*2+1:
-        reported_pep_3p = pep_3p[:peptide_flanking_len + 1 - len(junction_pep)]  # if is_inframe else pep_3p
+        # fusion peptide
+        if peptide_flanking_len:
+            # taking $(peptide_chunk_len) aminoacids from 5':
+            pep_5p = pep_5p[-peptide_flanking_len:]
+            # trying to make the total peptide to be of length $(peptide_chunk_len)*2+1:
+            pep_3p = pep_3p[:peptide_flanking_len + 1 - len(junction_pep)] if is_inframe else pep_3p
 
-        reported_pep = reported_pep_5p + junction_pep + reported_pep_3p
-        assert '*' not in reported_pep
+        fusion_pep = pep_5p + junction_pep + pep_3p
+        assert '*' not in fusion_pep
 
-        self.peptide = reported_pep
+        self.peptide = fusion_pep
         self.is_inframe = is_inframe
-        self.fusion_offset_in_peptide = peptide_flanking_len
+        self.fusion_offset_in_peptide = peptide_flanking_len or len(pep_5p)
         self.num_of_nt_in_the_break = fs_5p
 
     def __repr__(self):
@@ -527,6 +538,35 @@ def _check_fusion_fasta(pizzly_fasta_rec, fusion):
         f'{pizzly_fasta_rec.seq} \n != \n {fus_fasta_rec.seq} \n ' \
         f'Check that the Ensembl versions and genome builds are matching. ' \
         f'You must use the same one as was run for pizzly.'
+
+
+# trim seq to be a length of a multiple of 3 - to aboid BioPython translation warning about trailing nt
+def _trim3(seq):
+    return seq[:len(seq) // 3 * 3]
+
+
+def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
+    """ We can also calculate peptides directly from Pizzly fasta. Making sure we would produce identical peptides.
+        In the future, we can ommit other logic and use Pizzly fasta directly.
+    """
+    pizzly_seq = pizzly_fasta_rec.seq
+    start_codon_offset = fusion.side_5p.trx.first_start_codon_spliced_offset
+    pizzly_seq = pizzly_seq[start_codon_offset:]
+    bp_offset = fusion.side_5p.bp_offset - start_codon_offset
+    if bp_offset <= 0:
+        return
+
+    fus_pos = bp_offset // 3
+    pep = _trim3(pizzly_seq).translate(to_stop=True)
+    if len(pep) < fus_pos:
+        return
+
+    if peptide_flanking_len:
+        pep = pep[fus_pos-peptide_flanking_len:fus_pos+peptide_flanking_len+1]
+        fus_pos = peptide_flanking_len
+
+    assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
+    assert fus_pos == fusion.fusion_offset_in_peptide, (fus_pos, fusion.fusion_offset_in_peptide)
 
 
 if __name__ == '__main__':

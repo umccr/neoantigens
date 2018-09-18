@@ -42,7 +42,7 @@ batch = batches[0]
 
 EPITOPE_LENGTHS = '8,9,10,11'
 PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'
-PEPTIDE_LENGTH = 31  # MHC_I wants 21, MHC_II wants 31
+FLANKING_PEPTIDE = 15  # MHC_I wants 10, MHC_II wants 15
 MIN_RNA_VAF = 10  # 10 percent
 
 
@@ -64,6 +64,15 @@ def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
     if USE_REMOTE_DB:
         cmd += f' --net-chop-method cterm --netmhc-stab --exclude-NAs'
     return cmd
+
+# rule pvacseq_filter:
+#     input:  dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.tsv'),
+#     output: dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.filt.tsv')
+#     shell : 'pvacseq top_score_filter -m median MHC_Class_II/diploid_tumor.final.tsv MHC_Class_II/diploid_tumor.final.TOP.tsv'
+    # also filer to remove epitopes shorter than FLANKING_PEPTIDE+1 that start earlier than FLANKING_PEPTIDE+1-len(epitope)
+    # in output: len(epitope) = Peptide Length
+    #            start        = Sub-peptide Position
+    # explore why MHC II takes 31aa
 
 rule run_pvacseq:
     input:  vcf         = join(work_dir, 'somatic.PON.VEP.SELECT.vcf'),
@@ -208,7 +217,7 @@ rule rna_pizzly_to_bedpe:
             rna_pizzly_prefix + '.json',
             rna_pizzly_prefix + '.fusions.fasta'
     params: prefix = rna_pizzly_prefix,
-            peptide_flanking_len = PEPTIDE_LENGTH // 2,
+            peptide_flanking_len = FLANKING_PEPTIDE,
     output: join(work_dir, 'pizzly', SNAME + '.bedpe')
     shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
             '-p {params.peptide_flanking_len} && [ -s {output} ]'
