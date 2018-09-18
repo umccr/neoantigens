@@ -206,7 +206,8 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None
                 _check_fusion_fasta(pizzly_fasta_rec, fusion)
                 filt_fasta_records.append(pizzly_fasta_rec)
 
-                _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len)
+                if fusion.peptide:
+                    _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len)
 
             if not bedpe_entries:
                 logger.warn(f'All transcript events filtered out for fusion {gene_a}>>{gene_b}, skipping')
@@ -486,7 +487,8 @@ class Fusion:
         # 3' peptide
         pep_3p = _trim3(seq_3p[start_3p_from:]).translate()
         if pep_3p[0] == '*':
-            logger.info(f'   The new 3p peptide starts from STOP, skipping')
+            logger.info(f'   The new 3p peptide starts from STOP ({seq_3p[start_3p_from:][:3]} '
+                        f'at position {self.side_3p.bp_offset}+{start_3p_from}), skipping')
             return
         if '*' not in pep_3p:
             logger.info(f'   No STOP codon in novel peptide, skipping')
