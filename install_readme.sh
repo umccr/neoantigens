@@ -22,6 +22,8 @@ fi
 ########################
 ### Install pVACtools
 pip install pvactools
+# override the codebase from our fork:
+git clone https://github.com/vladsaveliev/pVACtools ; cd pVACtools ; pip install . ;  cd ..
 pvacseq install_vep_plugin $VEP_DATA/Plugins
 
 
@@ -62,6 +64,7 @@ fi
 ########################
 ### pyensembl (to convert pizzly to bedpe)
 pip install "gtfparse>=1.1" pyensembl
+# override the codebase from our fork:
 git clone https://github.com/vladsaveliev/pyensembl ; cd pyensembl ; pip install . ;  cd ..
 export PYENSEMBL_CACHE_DIR=$ENSEMBL_DIR
 if [ ! -d $PYENSEMBL_CACHE_DIR/pyensembl ] ; then
