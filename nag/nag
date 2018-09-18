@@ -134,14 +134,7 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
         subprocess.call(f'chmod -R a+r {log_dir}', shell=True)
 
 
-def _report(fpath, kind, final_link_path):
-    if not verify_file(fpath, silent=True):
-        logger.info(f'{kind}: no neoantigens called.')
-        return
-
-    if not os.path.islink(final_link_path):
-        os.symlink(fpath, final_link_path)
-
+def _pvac_seq_tsv_stats(fpath):
     total_lines = 0
     epitopes = set()
     muts = set()
@@ -158,8 +151,27 @@ def _report(fpath, kind, final_link_path):
             genes.add(entry['Gene Name'])
             hlas.add(entry['HLA Allele'])
 
+    return total_lines, len(epitopes), len(muts), len(genes), len(hlas)
+
+
+def _report(fpath, kind, final_link_path):
+    if not verify_file(fpath, silent=True):
+        logger.info(f'{kind}: no neoantigens called.')
+        return
+
+    if not os.path.islink(final_link_path):
+        os.symlink(fpath, final_link_path)
+
+    unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.binding.tsv')
+    if not isfile(unfiltered_fpath):
+        unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.coverage.tsv')
+
+    lines,   epitopes,   muts,   genes,   hlas   = _pvac_seq_tsv_stats(fpath)
+    u_lines, u_epitopes, u_muts, u_genes, u_hlas = _pvac_seq_tsv_stats(unfiltered_fpath)
+
     logger.info(f'{kind}:')
-    logger.info(f'  - {len(epitopes)} epitopes from {len(muts)} variants in {len(genes)} genes in context of {len(hlas)} HLA alleles.')
+    logger.info(f'  - {epitopes} ({u_epitopes} unfiltered) epitopes from {muts} ({u_muts}) variants in '
+                f'{genes} ({u_genes}) genes in context of {hlas} ({u_hlas}) HLA alleles.')
     logger.info(f'  - file: {fpath}')
 
 
