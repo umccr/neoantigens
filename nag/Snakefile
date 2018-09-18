@@ -40,13 +40,23 @@ assert len(batches) == 1
 batch = batches[0]
 
 
+# pVACtools parameters
 EPITOPE_LENGTHS = '8,9,10,11'
-PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'
+PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'  # NetMHCcons is ensemble of NetMHC,NetMHCpan,PickPocket
+
+# pVACfuse parameters
 PEP_5_PRIME_FLANK = 14  # Aminoacids to pick from both sides of the fusion junction peptide.
     # It should be long enough so your longest desigred epitope just covers the junction. Say,
     # if the longest epitope length is 11, use PEP_5_PRIME_FLANK of 10. Since MHC_II algorithms
     # always call epitopes of the length 15, we set PEP_5_PRIME_FLANK to 14.
-MIN_RNA_VAF = 10  # Variant sould have allele frequency of at least 10% in RNAseq data
+
+# pVACseq parameters
+MIN_NORMAL_COV = 5
+MIN_TUMOR_COV = MIN_RNA_COV = 10
+MAX_NORMAL_VAF = 2
+MIN_TUMOR_VAF = MIN_RNA_VAF = config.get('min_tvaf', 10)
+MIN_EXPN = 1  # TPM expression should be at least 1
+EXCLUDE_NA = False
 
 
 rule all:
@@ -65,7 +75,9 @@ def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
            f'-e {EPITOPE_LENGTHS} --top-score-metric=lowest -t '
            f'--iedb-install-directory {IEDB_DIR} --keep-tmp-files {other_params} ')
     if USE_REMOTE_DB:
-        cmd += f' --net-chop-method cterm --netmhc-stab --exclude-NAs'
+        cmd += f' --net-chop-method cterm --netmhc-stab'
+    if EXCLUDE_NA:
+        cmd += f' --exclude-NAs'
     return cmd
 
 # rule pvacseq_filter:
@@ -82,10 +94,16 @@ rule run_pvacseq:
             hla_types   = join(work_dir, 'hla_line.txt'),
             extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml')
     output: dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.tsv')
-    params: out_dir = 'pvacseq_results',
-            trna_vaf = MIN_RNA_VAF,
+    params: out_dir = 'pvacseq_results'
     shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}',\
-                       '--tdna-vaf {params.trna_vaf} -i {input.extra_input}')
+                       f'--normal-cov {MIN_RNA_VAF} '\
+                       f'--tdna-cov {MIN_TUMOR_COV} '\
+                       f'--trna-cov {MIN_RNA_COV} '\
+                       f'--normal-vaf {MAX_NORMAL_VAF} '\
+                       f'--tdna-vaf {MIN_TUMOR_VAF} '\
+                       f'--trna-vaf {MIN_RNA_VAF} '\
+                       f'--expn-val {MIN_EXPN} '\
+                       '-i {input.extra_input}')
 
 rule run_pvacfuse:
     input:  bedpe       =  join(work_dir, 'pizzly', SNAME + '.bedpe'),
@@ -94,19 +112,6 @@ rule run_pvacfuse:
     params: out_dir = 'pvacfuse_results'
     shell:  _pvac_cmdl('pvacfuse', '<(grep -v ^chr {input.bedpe})', SNAME, '{input.hla_types}', '{params.out_dir}')
 
-################
-### Extra inputs files
-
-rule pvacseq_extra_input:
-    input:  transcript_expn_file      = join(work_dir, 'transcript_counts'),
-            trna_snvs_coverage_file   = join(work_dir, 'rna_snps.readcount'),
-            trna_indels_coverage_file = join(work_dir, 'rna_indels.readcount'),
-    output:                             join(work_dir, 'pvacseq_extra_input_file_list.yaml')
-    shell:  """
-        echo 'transcript_expn_file:      {input.transcript_expn_file}'      >> {output} &&
-        echo 'trna_snvs_coverage_file:   {input.trna_snvs_coverage_file}'   >> {output} &&
-        echo 'trna_indels_coverage_file: {input.trna_indels_coverage_file}' >> {output}
-    """
 
 ################
 ### HLA types
@@ -154,14 +159,43 @@ rule vcf_select:
 ################
 ### Variant coverage and expression (for pVACseq)
 
-# WGS BAMs
+# WGS BAMs (for pVACseq coverageFilter)
 
 t_bam = verify_file(batch.tumor.bam, silent=True)
 if t_bam:
-    pass
-    # Check DNA BAM coverage? Check variant AF frequency to match tumor purity?
+    # Also check variant AF frequency to match tumor purity?
+    rule tumor_dna_coverage_snps:
+        input:  bam = t_bam,
+                sites = join(work_dir, 'somatic_snps_sites.txt'),
+                ref_fa = REF_FA,
+        output: join(work_dir, 'tdna_snvs_coverage_file'),
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
 
-# RNAseq BAMs
+    rule tumor_dna_coverage_indels:
+        input:  bam = t_bam,
+                sites = join(work_dir, 'somatic_indels_sites.txt'),
+                ref_fa = REF_FA,
+        output: join(work_dir, 'tdna_indels_coverage_file'),
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
+
+n_bam = verify_file(batch.normal.bam, silent=True)
+if n_bam:
+    # Also check variant AF frequency to match tumor purity?
+    rule normal_dna_coverage_snps:
+        input:  bam = n_bam,
+                sites = join(work_dir, 'somatic_snps_sites.txt'),
+                ref_fa = REF_FA,
+        output: join(work_dir, 'normal_snvs_coverage_file'),
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
+
+    rule normal_dna_coverage_indels:
+        input:  bam = n_bam,
+                sites = join(work_dir, 'somatic_indels_sites.txt'),
+                ref_fa = REF_FA,
+        output: join(work_dir, 'normal_indels_coverage_file'),
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
+
+# RNAseq BAMs (for pVACseq coverageFilter)
 
 if RNA_SNAME:
     rna_run = BcbioProject(RNA_BCBIO, include_samples=[RNA_SNAME])
@@ -192,26 +226,44 @@ rule rna_coverage_snps:
     input:  bam = rna_bam,
             sites = join(work_dir, 'somatic_snps_sites.txt'),
             ref_fa = REF_FA,
-    output: join(work_dir, 'rna_snps.readcount'),
+    output: join(work_dir, 'trna_snvs_coverage_file'),
     shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
 
 rule rna_coverage_indels:
     input:  bam = rna_bam,
             sites = join(work_dir, 'somatic_indels_sites.txt'),
             ref_fa = REF_FA,
-    output: join(work_dir, 'rna_indels.readcount'),
+    output: join(work_dir, 'trna_indels_coverage_file'),
     shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
 
-################
-### Transcript expression (for pVACseq and pVACfuse)
+# Transcript expression (for pVACseq coverageFilter)
 
 rule rna_expression:
     input:  rna_counts,
-    output: join(work_dir, 'transcript_counts'),
+    output: join(work_dir, 'transcript_expn_file'),
     shell: 'cut -f1,5 {input} | sed "s/target_id/tracking_id/" | sed "s/tpm/FPKM/" > {output}'
 
+
+################
+### Extra inputs files (for pVACsesq coverageFilter)
+
+rule pvacseq_extra_input:
+    input:  transcript_expn_file        = join(work_dir, 'transcript_expn_file'),
+            trna_snvs_coverage_file     = join(work_dir, 'trna_snvs_coverage_file'),
+            trna_indels_coverage_file   = join(work_dir, 'trna_indels_coverage_file'),
+            tdna_snvs_coverage_file     = join(work_dir, 'tdna_snvs_coverage_file') if t_bam else [],
+            tdna_indels_coverage_file   = join(work_dir, 'tdna_indels_coverage_file') if t_bam else [],
+            normal_snvs_coverage_file   = join(work_dir, 'normal_snvs_coverage_file') if n_bam else [],
+            normal_indels_coverage_file = join(work_dir, 'normal_indels_coverage_file') if n_bam else [],
+    output:                               join(work_dir, 'pvacseq_extra_input_file_list.yaml')
+    run:
+        with open(output[0], 'w') as out_fh:
+            for fpath in input:
+                name = basename(fpath)
+                out_fh.write(f'{name}: {abspath(fpath)}\n')
+
 #################
-### fusions (for pVACfuse)
+### prepare fusions (for pVACfuse)
 
 rule rna_pizzly_to_bedpe:
     input:  rna_pizzly_prefix + '-flat-filtered.tsv',
