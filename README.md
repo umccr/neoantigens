@@ -42,7 +42,9 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 
 #### More papers
 
-[Novel tools to assist neoepitope targeting in personalized cancer immunotherapy](https://academic.oup.com/annonc/article/28/suppl_12/xii3/4582335)
+- [Review (no fusions)](https://academic.oup.com/annonc/article/28/suppl_12/xii3/4582335)
+
+- [Fusion genes](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC516526/)
 
 ## Installation
 
@@ -162,6 +164,14 @@ pvacfuse run \
 ```
 
 The data is prepared and pVACfuse is run within the NAG pepeline, refer to [usage](#usage). 
+
+#### Ideas
+
+- From [fusion gene calling papaer](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC516526/)):
+  - Each fusion transcript candidate aligned to the corresponding artificially fused genomic sequence by using the SIM4 program, and the alignment around the fusion point was manually inspected. Only those that aligned precisely, without a gap or overlap, were retained
+  - The transcripts that included human repetitive sequences were removed by using the repeatmasker program 
+  - Should we treat cDNA chimeras (breakpoint before transcription) from transcript chimeras (breakpoint before transcription)? "Chimeric transcripts can be distinguished from artificial chimeras, which are created by accidental ligation of different cDNAs during the cloning procedure, by examining the sequence at the fusion point. The fusion point in the chimeras from true fusion genes will usually coincide with a canonical exon boundary because the genes are likely to break in an intron because introns are generally much longer than exons. In contrast, the fusion point for an artificial chimera will usually be within an exon of each gene because the fusion occurs between two cDNAs."
+
 
 ## NeoepitopePred
 
