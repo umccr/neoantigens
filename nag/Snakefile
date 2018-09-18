@@ -42,8 +42,11 @@ batch = batches[0]
 
 EPITOPE_LENGTHS = '8,9,10,11'
 PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'
-FLANKING_PEPTIDE = 15  # MHC_I wants 10, MHC_II wants 15
-MIN_RNA_VAF = 10  # 10 percent
+PEP_5_PRIME_FLANK = 14  # Aminoacids to pick from both sides of the fusion junction peptide.
+    # It should be long enough so your longest desigred epitope just covers the junction. Say,
+    # if the longest epitope length is 11, use PEP_5_PRIME_FLANK of 10. Since MHC_II algorithms
+    # always call epitopes of the length 15, we set PEP_5_PRIME_FLANK to 14.
+MIN_RNA_VAF = 10  # Variant sould have allele frequency of at least 10% in RNAseq data
 
 
 rule all:
@@ -215,8 +218,8 @@ rule rna_pizzly_to_bedpe:
             rna_pizzly_prefix + '.json',
             rna_pizzly_prefix + '.fusions.fasta'
     params: prefix = rna_pizzly_prefix,
-            peptide_flanking_len = FLANKING_PEPTIDE,
+            pep_5_prime_flank = PEP_5_PRIME_FLANK,
     output: join(work_dir, 'pizzly', SNAME + '.bedpe')
     shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
-            '-p {params.peptide_flanking_len} && [ -s {output} ]'
+            '-p {params.pep_5_prime_flank} && [ -s {output} ]'
 
