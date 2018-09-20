@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
-from os.path import isfile, join, dirname, abspath
+from os.path import isfile, join, dirname, abspath, relpath
 from pathlib import Path
 import click
 import subprocess
@@ -38,6 +38,8 @@ from nag import package_path
 def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None, rna_bcbio=None, rna_sample=None,
          ensembl_release=None, min_tvaf=None, jobs=None, cluster=False, unlock=False, restart_times=None,
     ):
+    target_rule = list(target_rule)
+
     output_dir = output_dir or 'neoantigens'
     output_dir = safe_mkdir(abspath(output_dir))
     log_dir = safe_mkdir(join(output_dir, 'log'))
@@ -49,6 +51,10 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
     if rna_sample and rna_bcbio:
         conf['rna_sample'] = rna_sample
         conf['rna_bcbio'] = rna_bcbio
+    else:
+        if 'pvacfuse' in target_rule:
+            logger.critical('Cannot run pVACfuse without RNA data')
+        target_rule = ['pvacseq']
     if sample:
         conf['sample'] = sample
     if ensembl_release:
@@ -70,7 +76,6 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
     #### Building command line ####
     ###############################
 
-    target_rule = list(target_rule)
     snakefile = join(package_path(), 'Snakefile')
     cmd = (
         f'snakemake '
@@ -164,7 +169,7 @@ def _report(fpath, kind, final_link_path):
         return
 
     if not os.path.islink(final_link_path):
-        os.symlink(fpath, final_link_path)
+        os.symlink(relpath(fpath, final_link_path), final_link_path)
 
     unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.binding.tsv')
     if not isfile(unfiltered_fpath):
