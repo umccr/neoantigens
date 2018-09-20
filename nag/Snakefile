@@ -159,6 +159,24 @@ rule vcf_select:
 ################
 ### Variant coverage and expression (for pVACseq)
 
+rule extract_snps:
+    input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
+    output: join(work_dir, 'somatic_snps_sites.txt'),
+    shell:  """
+bcftools view -v snps {input} | 
+bcftools query -f "%CHROM \\t %POS \\n" | 
+awk '{{ OFS="\\t" }} {{ print $1,$2-1,$2 }}' > {output}
+"""
+
+rule extract_indels:
+    input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
+    output: join(work_dir, 'somatic_indels_sites.txt'),
+    shell:  """
+bcftools view -v indels {input} | 
+bcftools query -f "%CHROM \\t %POS \\t %LEN \\n" | 
+awk '{{ OFS="\\t" }}{{ print $1,$2-1,$2+$3-1 }}' > {output}
+"""
+
 # WGS BAMs (for pVACseq coverageFilter)
 
 t_bam = verify_file(batch.tumor.bam, silent=True)
@@ -195,62 +213,61 @@ if n_bam:
         output: join(work_dir, 'normal_indels_coverage_file'),
         shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
 
-# RNAseq BAMs (for pVACseq coverageFilter)
-
 if RNA_SNAME:
     rna_run = BcbioProject(RNA_BCBIO, include_samples=[RNA_SNAME])
     rna_sample = rna_run.samples[0]
     rna_bam = rna_sample.bam
     rna_counts = join(rna_sample.dirpath, 'kallisto', 'abundance.tsv')
     rna_pizzly_prefix = join(rna_sample.dirpath, 'pizzly', RNA_SNAME)
+    fastq = [f for f in rna_sample.sample_info['files'] if not f.endswith('.bam') and verify_file(f, silent=True)]
 
-rule extract_snps:
-    input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
-    output: join(work_dir, 'somatic_snps_sites.txt'),
-    shell:  """
-bcftools view -v snps {input} | 
-bcftools query -f "%CHROM \\t %POS \\n" | 
-awk '{{ OFS="\\t" }} {{ print $1,$2-1,$2 }}' > {output}
-"""
+    # RNAseq BAMs (for pVACseq coverageFilter)
 
-rule extract_indels:
-    input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
-    output: join(work_dir, 'somatic_indels_sites.txt'),
-    shell:  """
-bcftools view -v indels {input} | 
-bcftools query -f "%CHROM \\t %POS \\t %LEN \\n" | 
-awk '{{ OFS="\\t" }}{{ print $1,$2-1,$2+$3-1 }}' > {output}
-"""
+    rule rna_coverage_snps:
+        input:  bam = rna_bam,
+                sites = join(work_dir, 'somatic_snps_sites.txt'),
+                ref_fa = REF_FA,
+        output: join(work_dir, 'trna_snvs_coverage_file'),
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
 
-rule rna_coverage_snps:
-    input:  bam = rna_bam,
-            sites = join(work_dir, 'somatic_snps_sites.txt'),
-            ref_fa = REF_FA,
-    output: join(work_dir, 'trna_snvs_coverage_file'),
-    shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
+    rule rna_coverage_indels:
+        input:  bam = rna_bam,
+                sites = join(work_dir, 'somatic_indels_sites.txt'),
+                ref_fa = REF_FA,
+        output: join(work_dir, 'trna_indels_coverage_file'),
+        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
 
-rule rna_coverage_indels:
-    input:  bam = rna_bam,
-            sites = join(work_dir, 'somatic_indels_sites.txt'),
-            ref_fa = REF_FA,
-    output: join(work_dir, 'trna_indels_coverage_file'),
-    shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
+    # Transcript expression (for pVACseq coverageFilter)
 
-# Transcript expression (for pVACseq coverageFilter)
+    rule rna_expression:
+        input:  rna_counts,
+        output: join(work_dir, 'transcript_expn_file'),
+        shell: 'cut -f1,5 {input} | sed "s/target_id/tracking_id/" | sed "s/tpm/FPKM/" > {output}'
 
-rule rna_expression:
-    input:  rna_counts,
-    output: join(work_dir, 'transcript_expn_file'),
-    shell: 'cut -f1,5 {input} | sed "s/target_id/tracking_id/" | sed "s/tpm/FPKM/" > {output}'
+    #################
+    ### prepare fusions (for pVACfuse)
+
+    rule rna_pizzly_to_bedpe:
+        input:  rna_pizzly_prefix + '-flat-filtered.tsv',
+                rna_pizzly_prefix + '.json',
+                rna_pizzly_prefix + '.fusions.fasta',
+                reads1 = fastq[0] if len(fastq) > 0 else [],
+                reads2 = fastq[1] if len(fastq) > 1 else [],
+        params: prefix = rna_pizzly_prefix,
+                pep_5_prime_flank = PEP_5_PRIME_FLANK,
+        output: join(work_dir, 'pizzly', SNAME + '.bedpe')
+        shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
+                '-p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} --no-filtering ' \
+                '&& [ -s {output} ]'
 
 
 ################
 ### Extra inputs files (for pVACsesq coverageFilter)
 
 rule pvacseq_extra_input:
-    input:  transcript_expn_file        = join(work_dir, 'transcript_expn_file'),
-            trna_snvs_coverage_file     = join(work_dir, 'trna_snvs_coverage_file'),
-            trna_indels_coverage_file   = join(work_dir, 'trna_indels_coverage_file'),
+    input:  transcript_expn_file        = join(work_dir, 'transcript_expn_file')if RNA_SNAME else [],
+            trna_snvs_coverage_file     = join(work_dir, 'trna_snvs_coverage_file') if RNA_SNAME else [],
+            trna_indels_coverage_file   = join(work_dir, 'trna_indels_coverage_file')if RNA_SNAME else [],
             tdna_snvs_coverage_file     = join(work_dir, 'tdna_snvs_coverage_file') if t_bam else [],
             tdna_indels_coverage_file   = join(work_dir, 'tdna_indels_coverage_file') if t_bam else [],
             normal_snvs_coverage_file   = join(work_dir, 'normal_snvs_coverage_file') if n_bam else [],
@@ -262,16 +279,4 @@ rule pvacseq_extra_input:
                 name = basename(fpath)
                 out_fh.write(f'{name}: {abspath(fpath)}\n')
 
-#################
-### prepare fusions (for pVACfuse)
-
-rule rna_pizzly_to_bedpe:
-    input:  rna_pizzly_prefix + '-flat-filtered.tsv',
-            rna_pizzly_prefix + '.json',
-            rna_pizzly_prefix + '.fusions.fasta'
-    params: prefix = rna_pizzly_prefix,
-            pep_5_prime_flank = PEP_5_PRIME_FLANK,
-    output: join(work_dir, 'pizzly', SNAME + '.bedpe')
-    shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
-            '-p {params.pep_5_prime_flank} && [ -s {output} ]'
 
