@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 import os
 import sys
-from os.path import dirname, abspath, splitext, isfile
+from collections import defaultdict
+from os.path import dirname, abspath, splitext, isfile, join
 import json
 import csv
 import click
 from ngs_utils import logger
 from ngs_utils.call_process import run_simple
+from ngs_utils.file_utils import safe_mkdir
 from pyensembl import EnsemblRelease, Transcript
 from Bio.Alphabet import IUPAC
 from Bio import SeqIO
@@ -14,6 +16,7 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Data import CodonTable
 from memoized_property import memoized_property
+from hpc_utils.hpc import get_ref_file
 
 
 """
@@ -81,19 +84,26 @@ cat sample.bedpe
 @click.option('-o', '--output-bedpe', type=click.Path(), help='Output bedpe file path')
 @click.option('--output-fasta', type=click.Path(), help='Filtered fasta file having only fusions from bedpe')
 @click.option('--output-json', type=click.Path(), help='Filtered JSON file having only fusions from bedpe')
-@click.option('-s', '--support', help='Minimal read support to keep an event', default=5)
+@click.option('-s', '--min-read-support', help='Minimal read support to keep an event', default=5)
 @click.option('-e', '--ensembl-release', default=91, help='Set to 75 for GRCh37')
 @click.option('-p', '--peptide-flanking-len', type=int,
               help='Reported only a part of fusion peptide around the breakpoint. Take `p` number of aminoacids '
                    'from each side of the fusion. Plus the junction peptide (the resulting peptide length will be `p`*2+1).')
 @click.option('-d', '--debug', is_flag=True)
+@click.option('--no-filtering', is_flag=True)
+
+@click.option('--trx-fa', type=click.Path(), help='Reference transcriptome fasta')
+@click.option('-r', '--reads', type=click.Path(), help='Fastq files with reads for re-quantifying', multiple=True)
+@click.option('-t', '--min-tpm', help='Minimal TPM for a transcript. Re-quanifies with kallisto, '
+                                      'thus applies only if reads are available.', default=1)
+
 # @click.option('--keep-noncoding', is_flag=True,
 #               help='Keep fusions that do not produce a peptide around the junction')
-def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None, ensembl_release=None,
-         peptide_flanking_len=None, debug=False):
+def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_support=None, ensembl_release=None,
+         peptide_flanking_len=None, debug=False, no_filtering=None, trx_fa=None, reads=None, min_tpm=None):
 
-    pizzly_flat_filt_fpath = prefix + '-flat-filtered.tsv'
-    pizzly_json_fpath = prefix + '.json'
+    input_flat_filt_fpath = prefix + '-flat-filtered.tsv'
+    input_json_fpath = prefix + '.json'
     input_fasta = prefix + '.fusions.fasta'
     output_bedpe = abspath(output_bedpe)
 
@@ -103,13 +113,13 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None
 
     # Reading filtered tsv
     filt_fusions = set()
-    with open(pizzly_flat_filt_fpath) as f:
+    with open(input_flat_filt_fpath) as f:
         for row in csv.DictReader(f, delimiter='\t'):
             filt_fusions.add((row['geneA.name'], row['geneB.name']))
 
     # Read json
     json_data = {'genes': []}
-    with open(pizzly_json_fpath) as f:
+    with open(input_json_fpath) as f:
         data = json.load(f)
         for g_event in data['genes']:
             gene_a, gene_b = g_event['geneA']['name'], g_event['geneB']['name']
@@ -119,12 +129,81 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None
     # Read fasta
     fasta_dict = SeqIO.index(input_fasta, 'fasta')
 
-    filt_json_data = {'genes': []}
-    filt_fasta_records = []
-    filt_event_count = 0
-    filt_transcript_event_count = 0
+    # First round: genomic coordinates and fasta
+    logger.info(f'Round 1: reading {len(json_data["genes"])} gene-pairs events from pizzly JSON')
+    fusions = []
+    for g_event in json_data['genes']:  # {'geneA', 'geneB', 'paircount', 'splitcount', 'transcripts', 'readpairs'}
+        gene_a, gene_b = g_event['geneA']['name'], g_event['geneB']['name']
+        logger.info(f'Processing event {gene_a}>>{gene_b}')
 
-    # Write bedpe
+        met_fasta_keys = set()  # collecting to get rid of duplicate transcript events
+        for t_event in g_event['transcripts']:
+            fusion = Fusion.create_from_pizzly_event(ebl, t_event)
+
+            if not _transcript_is_good(fusion.side_5p.trx) or \
+               not _transcript_is_good(fusion.side_3p.trx): continue
+
+            if not no_filtering and fusion.support < min_read_support: continue
+
+            if not no_filtering and not fusion.calc_genomic_positions(): continue
+
+            # comparing our fasta to pizzly fasta
+            fusion.fasta_rec = fasta_dict[t_event['fasta_record']]
+            _check_fusion_fasta(fusion.fasta_rec, fusion)
+
+            # skipping duplicate fastas
+            k = fusion.side_5p.trx.id, fusion.side_3p.trx.id, fusion.fasta
+            assert k not in met_fasta_keys
+            met_fasta_keys.add(k)
+
+            fusions.append(fusion)
+        if not met_fasta_keys:
+            logger.info('   Filtered all fusions for this gene pair.')
+
+    # Calculate expression of fused transcripts
+    expr_by_fusion = None
+    if reads:
+        # filtered fasta for re-calling expression
+        work_dir = safe_mkdir(splitext(output_bedpe)[0] + '_quant')
+        fasta_path = join(work_dir, 'fusions.fasta')
+        fasta_recs = [f.fasta_rec for f in fusions]
+        SeqIO.write(fasta_recs, fasta_path, 'fasta')
+
+        trx_fa = trx_fa or splitext(get_ref_file('hg38', 'gtf'))[0] + '.fa'
+        assert isfile(trx_fa)
+        expr_by_fusion = requanitify_pizzly(trx_fa, fasta_path, work_dir, reads, include_full_ref=True)
+        # expr_by_fusion = {fusion-fasta-id -> {length  eff_length  est_counts   tpm}}
+
+    # Second round: peptides and expression
+    logger.info()
+    logger.info(f'Round 2: making peptides for {len(fusions)} events in '
+                f'{len(set([(f.side_3p.trx.gene.name, f.side_5p.trx.gene.name) for f in fusions]))} genes pairs')
+    met_peptide_keys = set()  # collecting to get rid of duplicate peptides
+    bedpe_entries = []
+    peptide_fusions = []
+    for fusion in fusions:
+        logger.info(f'Translating {fusion.side_5p.trx.gene.name}>>{fusion.side_3p.trx.gene.name} fusion: {fusion}')
+        fusion.make_peptide(peptide_flanking_len)
+        if fusion.peptide:
+            _verify_peptides(fusion.fasta_rec, fusion, peptide_flanking_len)
+
+        # skipping duplicate peptides
+        k = fusion.side_5p.trx.gene.name, fusion.side_3p.trx.gene.name, fusion.peptide
+        if k in met_peptide_keys: continue
+        met_peptide_keys.add(k)
+
+        # writing bedpe
+        entry = fusion.to_bedpe()
+
+        # add expression
+        if expr_by_fusion:
+            entry.update(expr_by_fusion[fusion.fasta_rec.id])
+            if not no_filtering and int(entry['tpm']) < min_tpm: continue
+
+        peptide_fusions.append(fusion)
+        bedpe_entries.append(entry)
+
+    # Writing bedpe
     with open(output_bedpe, 'w') as bedpe_fh:
         bedpe_header = [
             'chr 5p',
@@ -146,91 +225,23 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, support=None
             'transcripts',
             'is canon intron dinuc',
         ]
+        if expr_by_fusion:
+            bedpe_header.extend(list(expr_by_fusion.values())[0].keys())
         bedpe_writer = csv.DictWriter(bedpe_fh, fieldnames=bedpe_header, delimiter='\t')
         bedpe_writer.writeheader()
-
-        for g_event in json_data['genes']:  # {'geneA', 'geneB', 'paircount', 'splitcount', 'transcripts', 'readpairs'}
-            gene_a, gene_b = g_event['geneA']['name'], g_event['geneB']['name']
-            logger.info(gene_a + '>>' + gene_b)
-
-            # # first pass to select the longest transcripts
-            # def _longest_tx(key):
-            #     return max((ebl.transcript_by_id(te[f'transcript{key}']['id']) for te in g_event['transcripts']), key=lambda t: len(t))
-            # a_tx = _longest_tx('A')
-            # b_tx = _longest_tx('B')
-            # print(f'Longest transcriptA: {a_tx.id}, Longest transcriptB: {b_tx.id}')
-            # try:
-            #     t_event = [te for te in g_event['transcripts'] if te['transcriptA']['id'] == a_tx.id and te['transcriptB']['id'] == b_tx.id][0]
-            # except:
-            #     print(f"No event with 2 longest transcripts. Available events: {', '.join(te['transcriptA']['id'] +
-            #           '>>' + te['transcriptB']['id'] for te in g_event['transcripts'])}")
-            #     raise
-
-            filt_g_event = {k: v for k, v in g_event.items() if k != 'readpairs'}
-            filt_g_event['transcripts'] = []
-
-            met_event_keys = set()  # collecting to get rid of duplicate transcript events
-            met_peptide_keys = set()  # collecting to get rid of duplicate peptides
-            bedpe_entries = []
-            for t_event in g_event['transcripts']:
-                if t_event['support'] < support:
-                    continue
-
-                fusion = Fusion.create_from_pizzly_event(ebl, t_event)
-                if not fusion:  # not a good transcript
-                    continue
-
-                # skipping duplicate events
-                k = fusion.side_5p.trx.id, fusion.side_3p.trx.id, fusion.side_5p.bp_offset, fusion.side_3p.bp_offset
-                if k in met_event_keys: continue
-                met_event_keys.add(k)
-
-                # for writing filtered json
-                filt_g_event['transcripts'].append(t_event)
-                filt_transcript_event_count += 1
-
-                # writing bedpe
-                entry = fusion.to_bedpe(peptide_flanking_len)
-                if not entry:
-                    continue
-
-                # skipping duplicate peptides
-                k = entry['name'], entry['peptide']
-                if k in met_peptide_keys: continue
-                met_peptide_keys.add(k)
-
-                bedpe_entries.append(entry)
-
-                # for writing filtered fasta
-                pizzly_fasta_rec = fasta_dict[t_event['fasta_record']]
-                _check_fusion_fasta(pizzly_fasta_rec, fusion)
-                filt_fasta_records.append(pizzly_fasta_rec)
-
-                if fusion.peptide:
-                    _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len)
-
-            if not bedpe_entries:
-                logger.warn(f'All transcript events filtered out for fusion {gene_a}>>{gene_b}, skipping')
-            else:
-                filt_json_data['genes'].append(filt_g_event)
-                filt_event_count += 1
-                for bedpe_entry in bedpe_entries:
-                    bedpe_writer.writerow(bedpe_entry)
+        for bedpe_entry in bedpe_entries:
+            bedpe_writer.writerow(bedpe_entry)
 
     # _test_pvac(output_bedpe)
 
-    # Write filtered json
-    if output_json:
-        with open(output_json, 'w') as f:
-            json.dump(filt_json_data, f, indent=4)
-
     # Write fasta
     if output_fasta:
-        SeqIO.write(filt_fasta_records, output_fasta, 'fasta')
+        SeqIO.write([f.fasta_rec for f in peptide_fusions], output_fasta, 'fasta')
 
     logger.info()
-    logger.info(f'Written {filt_transcript_event_count} transcript events '
-                f'for {filt_event_count} fusions into bedpe: {output_bedpe}')
+    logger.info(f'Written {len(peptide_fusions)} fusions in '
+                f'{len(set([(f.side_3p.trx.gene.name, f.side_5p.trx.gene.name) for f in peptide_fusions]))} '
+                f'gene pairs good peptides bedpe: {output_bedpe}')
 
 
 def _test_pvac(bedpe_path):
@@ -301,12 +312,22 @@ class FusionSide:
         self.trx = transcript
         self.bp_offset = bp_offset
 
-    def calc_genomic_bp_offset(self):
+        self.bp_genomic_pos = None
+        self.bp_is_in_intron = None
+
+    def calc_genomic_bp_pos(self):
         genomic_coord, is_in_intron = FusionSide.offset_to_genome_coord(self.trx, self.bp_offset)
         if genomic_coord is None:
             logger.critical(f'  Error: could not convert transcript {id} offest {genomic_coord} to genomic coordinate')
             return None
-        return genomic_coord, is_in_intron
+
+        if genomic_coord == -1:
+            logger.warn(f'  Fusion in {self} takes the whole transcript {self.trx.id}. That\'s suspicious, so we are skipping it.')
+            return None
+
+        self.bp_genomic_pos = genomic_coord
+        self.bp_is_in_intron = is_in_intron
+        return True
 
     @staticmethod
     def offset_to_genome_coord(trx, offset):
@@ -343,6 +364,27 @@ class FusionSide:
         assert genomic_coord is not None  # correct code should always produce something
         return genomic_coord, is_in_intron
 
+    @staticmethod
+    def create_5p(ebl_db, t_event):
+        t_data = t_event['transcriptA']  # {"id" : "ENST00000489283", "startPos" : 0, "endPos" : 168, "edit" : 0, "strand" : true}
+        trx = ebl_db.transcript_by_id(t_data['id'])
+
+        start = int(t_data['startPos'])
+        end = int(t_data['endPos'])
+
+        assert start == 0, f'For 5\' transcript {trx.id}, start pos = {start}'
+        return FusionSide(trx, bp_offset=end)
+
+    @staticmethod
+    def create_3p(ebl_db, t_event):
+        t_data = t_event['transcriptB']  # {"id" : "ENST00000333167", "startPos" : 496, "endPos" : 1785, "edit" : 7, "strand" : true}
+        trx = ebl_db.transcript_by_id(t_data['id'])
+
+        start = int(t_data['startPos'])
+        end = int(t_data['endPos'])
+
+        assert end == len(trx), f'For 3\' transcript {trx.id}>>{trx.id}, end pos = {end}'
+        return FusionSide(trx, bp_offset=start)
 
 class Fusion:
     def __init__(self, side_5p: FusionSide, side_3p: FusionSide, support: int, tier=3):
@@ -358,51 +400,27 @@ class Fusion:
         self.fusion_offset_in_peptide = None
         self.num_of_nt_in_the_break = None
 
+        self.fasta_rec = None
+
     @staticmethod
     def create_from_pizzly_event(ebl_db, t_event):
-        t_data_5p = t_event['transcriptA']  # {"id" : "ENST00000489283", "startPos" : 0, "endPos" : 168, "edit" : 0, "strand" : true}
-        t_data_3p = t_event['transcriptB']  # {"id" : "ENST00000333167", "startPos" : 496, "endPos" : 1785, "edit" : 7, "strand" : true}
-
-        trx_5p = _find_transcript(ebl_db, t_data_5p['id'], name='A')
-        if not _transcript_is_good(trx_5p): return None
-        trx_3p = _find_transcript(ebl_db, t_data_3p['id'], name='B')
-        if not _transcript_is_good(trx_3p): return None
-
-        start_5p = int(t_data_5p['startPos'])
-        end_5p = int(t_data_5p['endPos'])
-        start_3p = int(t_data_3p['startPos'])
-        end_3p = int(t_data_3p['endPos'])
-
-        assert start_5p == 0, f'For event {trx_5p.id}>>{trx_3p.id}, 5p start pos = {start_5p}'
-        assert end_3p == len(trx_3p), f'For event {trx_5p.id}>>{trx_3p.id}, 3p end pos = {end_3p}'
-
-        bp_offset_5p = end_5p
-        bp_offset_3p = start_3p
-
-        side_5p = FusionSide(trx_5p, bp_offset_5p)
-        side_3p = FusionSide(trx_3p, bp_offset_3p)
+        side_5p = FusionSide.create_5p(ebl_db, t_event)
+        side_3p = FusionSide.create_3p(ebl_db, t_event)
         return Fusion(side_5p, side_3p, t_event['support'])
 
-    def to_bedpe(self, peptide_flanking_len=None):
-        bp_genomic_pos_5p, bp_in_intron_5p = self.side_5p.calc_genomic_bp_offset()
-        if bp_genomic_pos_5p == -1:
-            logger.warn(f'  Fusion in {self} takes the whole 5p transcript {self.side_5p.trx.id}. That\'s suspicious, so we are skipping it.')
-            return None
+    def calc_genomic_positions(self):
+        return self.side_3p.calc_genomic_bp_pos() and self.side_5p.calc_genomic_bp_pos()
 
-        bp_genomic_pos_3p, bp_in_intron_3p = self.side_3p.calc_genomic_bp_offset()
-        if bp_genomic_pos_3p == -1:
-            logger.warn(f'  Fusion in {self} takes the whole 3p transcript {self.side_3p.trx.id}. That\'s suspicious, so we are skipping it.')
-            return None
-
-        self.is_canonical_boundary = bp_in_intron_5p and bp_in_intron_3p
+    def to_bedpe(self):
+        self.is_canonical_boundary = self.side_5p.bp_is_in_intron and self.side_3p.bp_is_in_intron
 
         entry = {
             'chr 5p':                self.side_5p.trx.contig,
-            'start 5p':              -1 if self.side_5p.trx.strand == '+' else bp_genomic_pos_5p,
-            'end 5p':                -1 if self.side_5p.trx.strand == '-' else bp_genomic_pos_5p,
+            'start 5p':              -1 if self.side_5p.trx.strand == '+' else self.side_5p.bp_genomic_pos,
+            'end 5p':                -1 if self.side_5p.trx.strand == '-' else self.side_5p.bp_genomic_pos,
             'chr 3p':                self.side_3p.trx.contig,
-            'start 3p':              bp_genomic_pos_3p if self.side_3p.trx.strand == '+' else -1,
-            'end 3p':                bp_genomic_pos_3p if self.side_3p.trx.strand == '-' else -1,
+            'start 3p':              self.side_3p.bp_genomic_pos if self.side_3p.trx.strand == '+' else -1,
+            'end 3p':                self.side_3p.bp_genomic_pos if self.side_3p.trx.strand == '-' else -1,
             'name':                  self.side_5p.trx.gene.name + '>>' + self.side_3p.trx.gene.name,
             'tier':                  self.tier,
             'strand 5p':             self.side_5p.trx.strand,
@@ -416,7 +434,6 @@ class Fusion:
             'transcripts':           'NA',
             'is canon intron dinuc': 'NA',
         }
-        self.make_peptide(peptide_flanking_len)
         if self.peptide:
             # ENST00000304636|ENST00000317840;ENST00000377795;ENST00000009530|ENST00000353334
             # 5' transcripts                 ;3' transcripts ;3' frameshift transcripts
@@ -444,9 +461,11 @@ class Fusion:
         return Seq(seq, IUPAC.unambiguous_dna)
 
     def make_peptide(self, peptide_flanking_len=None):
-        logger.debug(f'Translating {self}')
-
         # 5' fasta
+        if not self.side_5p.trx.contains_start_codon:
+            logger.warn('No start codong in 5\' transcript')
+            return
+
         transl_start = self.side_5p.trx.first_start_codon_spliced_offset
         if self.side_5p.bp_offset < transl_start:  # if the bp (t_end) falls before the beginning of translation
             return
@@ -487,19 +506,19 @@ class Fusion:
         # 3' peptide
         pep_3p = _trim3(seq_3p[start_3p_from:]).translate()
         if pep_3p[0] == '*':
-            logger.info(f'   The new 3p peptide starts from STOP ({seq_3p[start_3p_from:][:3]} '
-                        f'at position {self.side_3p.bp_offset}+{start_3p_from}), skipping')
+            logger.info(f'   The new 3\' peptide starts from STOP ({seq_3p[start_3p_from:][:3]} '
+                        f'at position {self.side_3p.bp_offset}+{start_3p_from}), skipping translation.')
             return
         if '*' not in pep_3p:
-            logger.info(f'   No STOP codon in novel peptide, skipping')
+            logger.info(f'   No STOP codon in fused peptide, skipping translation.')
             return
         pep_3p = _trim3(seq_3p[start_3p_from:]).translate(to_stop=True)
 
-        logger.debug(f'  5p peptide (len={len(pep_5p)}): '
+        logger.debug(f'  5\' peptide (len={len(pep_5p)}): '
                      f'{pep_5p if len(pep_5p) < 99 else pep_5p[:48] + "..." + pep_5p[-48:]}')
         if junction_pep:
             logger.debug(f'  Junction peptide: {junction_pep}')
-        logger.debug(f'  3p peptide{f" (shifted by {fusion_fs} from original)" if fusion_fs else ""} (len={len(pep_3p)}): '
+        logger.debug(f'  3\' peptide{f" (shifted by {fusion_fs} from original)" if fusion_fs else ""} (len={len(pep_3p)}): '
                      f'{pep_3p if len(pep_3p) < 99 else pep_3p[:48] + "..." + pep_3p[-48:]}')
 
         # fusion peptide
@@ -598,6 +617,31 @@ def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
 
     assert fus_pos == fusion.fusion_offset_in_peptide, (fus_pos, fusion.fusion_offset_in_peptide)
     assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
+
+
+def requanitify_pizzly(ref_fa, fusions_fasta, work_dir, fastq, include_full_ref=False):
+    """ Returns dict fusion-fasta-id -> {length  eff_length  est_counts   tpm}
+    """
+    trx_with_fusions = join(work_dir, 'transcripts_with_fusions.fasta.gz')
+    kidx = join(work_dir, 'transcripts_with_fusions.kidx')
+
+    if not isfile(trx_with_fusions):
+        run_simple(f"cat {ref_fa if include_full_ref else ''} {fusions_fasta} | gzip -c > {trx_with_fusions}")
+
+    if not isfile(kidx):
+        run_simple(f"kallisto index -k31 -i {kidx} {trx_with_fusions}")
+
+    abundance = join(work_dir, 'abundance.tsv')
+    if not isfile(abundance):
+        run_simple(f"kallisto quant -i {kidx} -o {work_dir} {' '.join(fastq)}")
+
+    logger.debug(f'Reading expression from {abundance}')
+    expr_by_fusion = dict()
+    with open(abundance) as f:
+        header = f.readline().strip().split('\t')
+        for row in csv.DictReader(f, delimiter='\t', fieldnames=header):
+            expr_by_fusion[row['target_id']] = row
+    return expr_by_fusion
 
 
 if __name__ == '__main__':
