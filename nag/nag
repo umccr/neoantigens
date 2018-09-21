@@ -103,6 +103,7 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
         if sm_logs:
             with open(sm_logs[-1]) as fh:
                 logger._write_to_file(fh.read())
+                logger.info(f'Written snakemake log {sm_logs[0]} to {logger.log_fpath}')
 
     if unlock:
         logger.info('* Unlocking previous run... *')
@@ -168,7 +169,8 @@ def _report(fpath, kind, final_link_path):
         logger.info(f'{kind}: no neoantigens called.')
         return
 
-    if not os.path.islink(final_link_path):
+    if os.path.islink(final_link_path):
+        os.unlink(final_link_path)
         os.symlink(relpath(fpath, final_link_path), final_link_path)
 
     unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.binding.tsv')

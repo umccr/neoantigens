@@ -60,14 +60,14 @@ EXCLUDE_NA = False
 
 
 rule all:
-    input:   dynamic('pvacseq_results/MHC_Class_{cls}/'  + SNAME + '.final.tsv'),
-             dynamic('pvacfuse_results/MHC_Class_{cls}/' + SNAME + '.final.tsv')
+    input:   expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
+             expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
 
 rule pvacseq:
-    input:   dynamic('pvacseq_results/MHC_Class_{cls}/'  + SNAME + '.final.tsv')
+    input:   expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
 
 rule pvacfuse:
-    input:   dynamic('pvacfuse_results/MHC_Class_{cls}/' + SNAME + '.final.tsv')
+    input:   expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
 
 
 def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
@@ -93,24 +93,45 @@ rule run_pvacseq:
     input:  vcf         = join(work_dir, 'somatic.PON.VEP.SELECT.vcf'),
             hla_types   = join(work_dir, 'hla_line.txt'),
             extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml')
-    output: dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.tsv')
+    output: expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
     params: out_dir = 'pvacseq_results'
-    shell:  _pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}',\
-                       f'--normal-cov {MIN_RNA_VAF} '\
-                       f'--tdna-cov {MIN_TUMOR_COV} '\
-                       f'--trna-cov {MIN_RNA_COV} '\
-                       f'--normal-vaf {MAX_NORMAL_VAF} '\
-                       f'--tdna-vaf {MIN_TUMOR_VAF} '\
-                       f'--trna-vaf {MIN_RNA_VAF} '\
-                       f'--expn-val {MIN_EXPN} '\
-                       '-i {input.extra_input}')
+    run:
+        with open(input.vcf) as fh:
+            lines_num = [l for l in fh.readlines() if not l.startswith('#')]
+        if len(lines_num) == 0:
+            warn('No mutations to run pVACseq.')
+            shell('touch {output}')
+        else:
+            shell(_pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}',\
+                             f'--normal-cov {MIN_RNA_VAF} '\
+                             f'--tdna-cov {MIN_TUMOR_COV} '\
+                             f'--trna-cov {MIN_RNA_COV} '\
+                             f'--normal-vaf {MAX_NORMAL_VAF} '\
+                             f'--tdna-vaf {MIN_TUMOR_VAF} '\
+                             f'--trna-vaf {MIN_RNA_VAF} '\
+                             f'--expn-val {MIN_EXPN} '\
+                             '-i {input.extra_input}'))
+            for of in output:
+                if not isfile(of):
+                    shell(f'touch {of}')
+
 
 rule run_pvacfuse:
     input:  bedpe       =  join(work_dir, 'pizzly', SNAME + '.bedpe'),
             hla_types   = join(work_dir, 'hla_line.txt')
-    output: dynamic('pvacfuse_results/MHC_Class_{cls}/{SNAME}.final.tsv')
+    output: expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
     params: out_dir = 'pvacfuse_results'
-    shell:  _pvac_cmdl('pvacfuse', '<(grep -v ^chr {input.bedpe})', SNAME, '{input.hla_types}', '{params.out_dir}')
+    run:
+        with open(input.bedpe) as fh:
+            lines_num = [l for l in fh.readlines() if not l.startswith('chr')]
+        if len(lines_num) == 0:
+            warn('No fusions to run pVACfuse.')
+            shell('touch {output}')
+        else:
+            shell(_pvac_cmdl('pvacfuse', '<(grep -v ^chr {input.bedpe})', SNAME, '{input.hla_types}', '{params.out_dir}'))
+            for of in output:
+                if not isfile(of):
+                    shell(f'touch {of}')
 
 
 ################
@@ -257,7 +278,7 @@ if RNA_SNAME:
                 pep_5_prime_flank = PEP_5_PRIME_FLANK,
         output: join(work_dir, 'pizzly', SNAME + '.bedpe')
         shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
-                '-p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} --no-filtering ' \
+                '-p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} ' \
                 '&& [ -s {output} ]'
 
 
