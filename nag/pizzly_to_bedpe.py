@@ -100,7 +100,7 @@ cat sample.bedpe
 # @click.option('--keep-noncoding', is_flag=True,
 #               help='Keep fusions that do not produce a peptide around the junction')
 def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_support=None, ensembl_release=None,
-         peptide_flanking_len=None, debug=False, no_filtering=None, trx_fa=None, reads=None, min_tpm=None):
+         peptide_flanking_len=None, debug=False, no_filtering=False, trx_fa=None, reads=None, min_tpm=None):
 
     input_flat_filt_fpath = prefix + '-flat-filtered.tsv'
     input_json_fpath = prefix + '.json'
@@ -143,9 +143,9 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
             if not _transcript_is_good(fusion.side_5p.trx) or \
                not _transcript_is_good(fusion.side_3p.trx): continue
 
-            if not no_filtering and fusion.support < min_read_support: continue
+            if no_filtering is not True and fusion.support < min_read_support: continue
 
-            if not no_filtering and not fusion.calc_genomic_positions(): continue
+            if not fusion.calc_genomic_positions(): continue
 
             # comparing our fasta to pizzly fasta
             fusion.fasta_rec = fasta_dict[t_event['fasta_record']]
@@ -198,7 +198,7 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
         # add expression
         if expr_by_fusion:
             entry.update(expr_by_fusion[fusion.fasta_rec.id])
-            if not no_filtering and int(entry['tpm']) < min_tpm: continue
+            if no_filtering is not True and float(entry['tpm']) < min_tpm: continue
 
         peptide_fusions.append(fusion)
         bedpe_entries.append(entry)
@@ -319,11 +319,11 @@ class FusionSide:
         genomic_coord, is_in_intron = FusionSide.offset_to_genome_coord(self.trx, self.bp_offset)
         if genomic_coord is None:
             logger.critical(f'  Error: could not convert transcript {id} offest {genomic_coord} to genomic coordinate')
-            return None
+            return False
 
         if genomic_coord == -1:
             logger.warn(f'  Fusion in {self} takes the whole transcript {self.trx.id}. That\'s suspicious, so we are skipping it.')
-            return None
+            return False
 
         self.bp_genomic_pos = genomic_coord
         self.bp_is_in_intron = is_in_intron
@@ -413,6 +413,8 @@ class Fusion:
 
     def to_bedpe(self):
         self.is_canonical_boundary = self.side_5p.bp_is_in_intron and self.side_3p.bp_is_in_intron
+        assert self.side_5p.bp_genomic_pos
+        assert self.side_3p.bp_genomic_pos
 
         entry = {
             'chr 5p':                self.side_5p.trx.contig,

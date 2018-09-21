@@ -46,6 +46,8 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 
 - [Fusion genes](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC516526/)
 
+- [Novel tools to assist neoepitope targeting in personalized cancer immunotherapy](https://academic.oup.com/annonc/article/28/suppl_12/xii3/4582335)
+
 ## Installation
 
 Refer to [install_readme.sh](install_readme.sh) for instructions.
