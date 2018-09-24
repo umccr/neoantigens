@@ -171,7 +171,7 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
 
         trx_fa = trx_fa or splitext(get_ref_file('hg38', 'gtf'))[0] + '.fa'
         assert isfile(trx_fa)
-        expr_by_fusion = requanitify_pizzly(trx_fa, fasta_path, work_dir, reads, include_full_ref=True)
+        expr_by_fusion = requanitify_pizzly(trx_fa, fasta_path, work_dir, reads)
         # expr_by_fusion = {fusion-fasta-id -> {length  eff_length  est_counts   tpm}}
 
     # Second round: peptides and expression
@@ -621,14 +621,14 @@ def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
     assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
 
 
-def requanitify_pizzly(ref_fa, fusions_fasta, work_dir, fastq, include_full_ref=False):
+def requanitify_pizzly(ref_fa, fusions_fasta, work_dir, fastq):
     """ Returns dict fusion-fasta-id -> {length  eff_length  est_counts   tpm}
     """
     trx_with_fusions = join(work_dir, 'transcripts_with_fusions.fasta.gz')
     kidx = join(work_dir, 'transcripts_with_fusions.kidx')
 
     if not isfile(trx_with_fusions):
-        run_simple(f"cat {ref_fa if include_full_ref else ''} {fusions_fasta} | gzip -c > {trx_with_fusions}")
+        run_simple(f"cat {ref_fa} {fusions_fasta} | gzip -c > {trx_with_fusions}")
 
     if not isfile(kidx):
         run_simple(f"kallisto index -k31 -i {kidx} {trx_with_fusions}")

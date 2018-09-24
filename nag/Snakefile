@@ -92,7 +92,7 @@ def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
 rule run_pvacseq:
     input:  vcf         = join(work_dir, 'somatic.PON.VEP.SELECT.vcf'),
             hla_types   = join(work_dir, 'hla_line.txt'),
-            extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml')
+            extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml'),
     output: expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
     params: out_dir = 'pvacseq_results'
     run:
