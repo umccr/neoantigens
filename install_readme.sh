@@ -63,9 +63,7 @@ fi
 
 ########################
 ### pyensembl (to convert pizzly to bedpe)
-pip install "gtfparse>=1.1" pyensembl
-# override the codebase from our fork:
-git clone https://github.com/vladsaveliev/pyensembl ; cd pyensembl ; pip install . ;  cd ..
+pip install "gtfparse>=1.1" "pyensembl>=1.7.2"
 export PYENSEMBL_CACHE_DIR=$ENSEMBL_DIR
 if [ ! -d $PYENSEMBL_CACHE_DIR/pyensembl ] ; then
     # In 2 steps: first on loging node to make it download the files:
