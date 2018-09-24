@@ -293,7 +293,7 @@ def _transcript_is_good(trx):
     return \
         trx is not None and \
         (trx.biotype == 'protein_coding' or 'decay' in trx.biotype) and \
-        trx.support_level == '1'
+        trx.support_level == 1
 
 
 def _find_transcript(ebl, id, name):
