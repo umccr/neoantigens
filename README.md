@@ -3,18 +3,19 @@
 Anti-tumor T cells recognize tumor somatic mutations, translated as single amino acid substitutions, as "neoantigens" (upon processing and presentation in the context of MHC molecules). From NGS somatic variant calling data, we can attempt to reconstruct peptide sequences of such neoantigens, and thus produce personalised cancer vaccines.
 
 - [Introduction](#introduction)
-    - [Biology](#biology)
-    - [Approach](#approach)
-    - [Prediction methods](#prediction-methods)
-    - [Ranking tools](#ranking-tools)
+        - [Biology](#biology)
+        - [Approach](#approach)
+        - [Prediction methods](#prediction-methods)
+        - [Ranking tools](#ranking-tools)
+        - [More papers](#more-papers)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Processing test samples](#processing-test-samples)
 - [pVACseq](#pvacseq)
-- [wt_KRAS patient](#wtkras-patient)
 - [pVACfuse](#pvacfuse)
+        - [Ideas](#ideas)
 - [NeoepitopePred](#neoepitopepred)
-- [vaxrank](#vaxrank)
+- [OpenVax tools](#openvax-tools)
 
 ## Introduction
 
@@ -186,14 +187,18 @@ Unfortunately, it requires to upload FASTQ or BAM data on the server, which migh
 * Need mutations in a specific format
 * Uses NetMHCcons (consensus on a set of NetMHC methods).
 
-## vaxrank
+## OpenVax tools
 
-[VaxRank](https://github.com/openvax/vaxrank) is enother epitope prediction tool.
+OpenVax is a group at the Icahn School of Medicine at Mount Sinai that develop open source personalized cancer vaccine pipeline. Part of the tools are a predictor `MHCFlurry`, a wrapper `vaxrank`, and a NGS pipeline `neoantigen-vaccine-pipeline`. Exploring [here](docs/openvax.md).
 
-* Lack of docs (can refer to https://github.com/openvax/neoantigen-vaccine-pipeline/blob/master/README.md)
-* Uses only one predictor at a time (though have a large choise: mhcflurry,netmhc,netmhc3,netmhc4,netmhccons,netmhccons-iedb,netmhciipan,netmhciipan-iedb,netmhcpan,netmhcpan-iedb,netmhcpan28,netmhcpan3,random,smm-iedb,smm-pmbec-iedb)
-* Can't use fusions
-* Runs from VCF and a BAM
-* HLAs are expected in a weird notation
 
-[Exploring it here](docs/vaxrank.md).
+
+
+
+
+
+
+
+
+
+
