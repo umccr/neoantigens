@@ -90,9 +90,9 @@ def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
     # explore why MHC II takes 31aa
 
 rule run_pvacseq:
-    input:  vcf         = join(work_dir, 'somatic.PON.VEP.SELECT.vcf'),
+    input:  vcf         = join(work_dir, 'somatic.AFDP.FILT.PON.VEP.SELECT.vcf'),
             hla_types   = join(work_dir, 'hla_line.txt'),
-            extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml'),
+            extra_input = join(work_dir, 'pvacseq_extra_input_file_list.yaml') if RNA_SNAME else [],
     output: expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
     params: out_dir = 'pvacseq_results'
     run:
@@ -103,21 +103,17 @@ rule run_pvacseq:
             shell('touch {output}')
         else:
             shell(_pvac_cmdl('pvacseq', '{input.vcf}', SNAME, '{input.hla_types}', '{params.out_dir}',\
-                             f'--normal-cov {MIN_RNA_VAF} '\
-                             f'--tdna-cov {MIN_TUMOR_COV} '\
                              f'--trna-cov {MIN_RNA_COV} '\
-                             f'--normal-vaf {MAX_NORMAL_VAF} '\
-                             f'--tdna-vaf {MIN_TUMOR_VAF} '\
                              f'--trna-vaf {MIN_RNA_VAF} '\
-                             f'--expn-val {MIN_EXPN} '\
-                             '-i {input.extra_input}'))
+                             f'--expn-val {MIN_EXPN} ' +
+                             ('-i {input.extra_input}' if input.extra_input else '')))
             for of in output:
                 if not isfile(of):
                     shell(f'touch {of}')
 
 
 rule run_pvacfuse:
-    input:  bedpe       =  join(work_dir, 'pizzly', SNAME + '.bedpe'),
+    input:  bedpe       = join(work_dir, 'pizzly', SNAME + '.bedpe'),
             hla_types   = join(work_dir, 'hla_line.txt')
     output: expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
     params: out_dir = 'pvacfuse_results'
@@ -144,8 +140,9 @@ rule prep_hla:
     """
     input:  t_optitype
     output: join(work_dir, 'hla_line.txt')
-    shell: "grep -v ^sample {input} | tr ',' '\t' | cut -f3 | tr ';' '\n' | sort -u | tr '\n' ',' | head -c -1"
-           " > {output}"
+    shell: r"""
+    grep -v ^sample {input} | tr ',' '\t' | cut -f3 | tr ';' '\n' | sort -u | tr '\n' ',' | head -c -1 > {output}
+    """
 
 
 ################
@@ -153,89 +150,71 @@ rule prep_hla:
 
 t_vcf = verify_file(join(dna_run.date_dir, f'{batch.name}-ensemble-annotated.vcf.gz'))
 
+rule vcf_set_af_dp:
+    input:   t_vcf
+    output:  join(work_dir, 'somatic.AFDP.vcf')
+    shell:  'pcgr_prep {input} | bcftools view -f.,PASS -Oz -o {output} && tabix -p vcf {output}'
+
+rule vcf_af_filter:  # {batch}
+    input:  join(work_dir, 'somatic.AFDP.vcf')
+    output: join(work_dir, 'somatic.AFDP.FILT.vcf')
+    params: tvaf = MIN_TUMOR_VAF / 100,
+            nvaf = MAX_NORMAL_VAF / 100,
+            tcov = MIN_TUMOR_COV,
+            ncov = MIN_NORMAL_COV,
+    shell:  """
+    bcftools filter -i "TUMOR_AF>={params.tvaf} && NORMAL_AF<={params.nvaf} && TUMOR_DP>={params.tcov} && 
+    NORMAL_DP>={params.ncov}" {input} -Oz -o {output} && tabix {output}
+    """
+
 rule vcf_pon:
-    input:  t_vcf
-    output: join(work_dir, 'somatic.PON.vcf')
+    input:  join(work_dir, 'somatic.AFDP.FILT.vcf')
+    output: join(work_dir, 'somatic.AFDP.FILT.PON.vcf')
     params: genome = 'hg38'
     shell:  'pon_anno -g {params.genome} {input} -h1 | bcftools view -f.,PASS -o {output}'
 
 rule vcf_vep:
-    input:  join(work_dir, 'somatic.PON.vcf'),
+    input:  join(work_dir, 'somatic.AFDP.FILT.PON.vcf'),
             vep_data = VEP_DATA,
-    output: join(work_dir, 'somatic.PON.VEP.vcf')
+    output: join(work_dir, 'somatic.AFDP.FILT.PON.VEP.vcf')
     params: assembly = 'GRCh38'
-    shell:  '''
+    shell:  """
     vep --input_file {input} --format vcf --output_file {output} --vcf --force_overwrite \
     --pick --symbol --terms SO --plugin Downstream --plugin Wildtype \
     --cache --dir_cache {input.vep_data}/GRCh38 --dir_plugins {input.vep_data}/Plugins \
     --assembly {params.assembly} --offline
-    '''
+    """
 
 rule vcf_select:
-    input:  join(work_dir, 'somatic.PON.VEP.vcf')
-    output: join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
+    input:  join(work_dir, 'somatic.AFDP.FILT.PON.VEP.vcf')
+    output: join(work_dir, 'somatic.AFDP.FILT.PON.VEP.SELECT.vcf')
     params: sample = DNA_SNAME
     shell:  'bcftools view -s {params.sample} {input} > {output}'
 
 ################
 ### Variant coverage and expression (for pVACseq)
 
-rule extract_snps:
-    input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
+rule extract_snps:  # 1-based coordinates
+    input:  join(work_dir, 'somatic.AFDP.FILT.PON.VEP.SELECT.vcf')
     output: join(work_dir, 'somatic_snps_sites.txt'),
     shell:  """
 bcftools view -v snps {input} | 
 bcftools query -f "%CHROM \\t %POS \\n" | 
-awk '{{ OFS="\\t" }} {{ print $1,$2-1,$2 }}' > {output}
+awk '{{ OFS="\\t" }} {{ print $1,$2,$2 }}' > {output}
 """
 
 rule extract_indels:
-    input:  join(work_dir, 'somatic.PON.VEP.SELECT.vcf')
+    input:  join(work_dir, 'somatic.AFDP.FILT.PON.VEP.SELECT.vcf')
     output: join(work_dir, 'somatic_indels_sites.txt'),
     shell:  """
 bcftools view -v indels {input} | 
 bcftools query -f "%CHROM \\t %POS \\t %LEN \\n" | 
-awk '{{ OFS="\\t" }}{{ print $1,$2-1,$2+$3-1 }}' > {output}
+awk '{{ OFS="\\t" }}{{ print $1,$2,$2 }}' > {output}
 """
-
-# WGS BAMs (for pVACseq coverageFilter)
-
-t_bam = verify_file(batch.tumor.bam, silent=True)
-if t_bam:
-    # Also check variant AF frequency to match tumor purity?
-    rule tumor_dna_coverage_snps:
-        input:  bam = t_bam,
-                sites = join(work_dir, 'somatic_snps_sites.txt'),
-                ref_fa = REF_FA,
-        output: join(work_dir, 'tdna_snvs_coverage_file'),
-        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
-
-    rule tumor_dna_coverage_indels:
-        input:  bam = t_bam,
-                sites = join(work_dir, 'somatic_indels_sites.txt'),
-                ref_fa = REF_FA,
-        output: join(work_dir, 'tdna_indels_coverage_file'),
-        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
-
-n_bam = verify_file(batch.normal.bam, silent=True)
-if n_bam:
-    # Also check variant AF frequency to match tumor purity?
-    rule normal_dna_coverage_snps:
-        input:  bam = n_bam,
-                sites = join(work_dir, 'somatic_snps_sites.txt'),
-                ref_fa = REF_FA,
-        output: join(work_dir, 'normal_snvs_coverage_file'),
-        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} > {output}'
-
-    rule normal_dna_coverage_indels:
-        input:  bam = n_bam,
-                sites = join(work_dir, 'somatic_indels_sites.txt'),
-                ref_fa = REF_FA,
-        output: join(work_dir, 'normal_indels_coverage_file'),
-        shell: 'bam-readcount -f {input.ref_fa} -w 1 -l {input.sites} {input.bam} -i > {output}'
 
 if RNA_SNAME:
     rna_run = BcbioProject(RNA_BCBIO, include_samples=[RNA_SNAME])
+    assert rna_run.genome_build == 'hg38'
     rna_sample = rna_run.samples[0]
     rna_bam = rna_sample.bam
     rna_counts = join(rna_sample.dirpath, 'kallisto', 'abundance.tsv')
@@ -277,27 +256,25 @@ if RNA_SNAME:
         params: prefix = rna_pizzly_prefix,
                 pep_5_prime_flank = PEP_5_PRIME_FLANK,
         output: join(work_dir, 'pizzly', SNAME + '.bedpe')
-        shell:  'export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} ' \
-                '-p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} ' \
-                '&& [ -s {output} ]'
+        shell:  """
+        export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} 
+        -p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} 
+        && [ -s {output} ]
+        """
 
 
-################
-### Extra inputs files (for pVACsesq coverageFilter)
+    ################
+    ### Extra inputs files (for pVACsesq coverageFilter)
 
-rule pvacseq_extra_input:
-    input:  transcript_expn_file        = join(work_dir, 'transcript_expn_file')if RNA_SNAME else [],
-            trna_snvs_coverage_file     = join(work_dir, 'trna_snvs_coverage_file') if RNA_SNAME else [],
-            trna_indels_coverage_file   = join(work_dir, 'trna_indels_coverage_file')if RNA_SNAME else [],
-            tdna_snvs_coverage_file     = join(work_dir, 'tdna_snvs_coverage_file') if t_bam else [],
-            tdna_indels_coverage_file   = join(work_dir, 'tdna_indels_coverage_file') if t_bam else [],
-            normal_snvs_coverage_file   = join(work_dir, 'normal_snvs_coverage_file') if n_bam else [],
-            normal_indels_coverage_file = join(work_dir, 'normal_indels_coverage_file') if n_bam else [],
-    output:                               join(work_dir, 'pvacseq_extra_input_file_list.yaml')
-    run:
-        with open(output[0], 'w') as out_fh:
-            for fpath in input:
-                name = basename(fpath)
-                out_fh.write(f'{name}: {abspath(fpath)}\n')
+    rule pvacseq_extra_input:
+        input:  transcript_expn_file        = join(work_dir, 'transcript_expn_file') if RNA_SNAME else [],
+                trna_snvs_coverage_file     = join(work_dir, 'trna_snvs_coverage_file') if RNA_SNAME else [],
+                trna_indels_coverage_file   = join(work_dir, 'trna_indels_coverage_file')if RNA_SNAME else [],
+        output:                               join(work_dir, 'pvacseq_extra_input_file_list.yaml')
+        run:
+            with open(output[0], 'w') as out_fh:
+                for fpath in input:
+                    name = basename(fpath)
+                    out_fh.write(f'{name}: {abspath(fpath)}\n')
 
 
