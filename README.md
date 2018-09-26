@@ -7,6 +7,7 @@ Anti-tumor T cells recognize tumor somatic mutations, translated as single amino
         - [Approach](#approach)
         - [Prediction methods](#prediction-methods)
         - [Ranking tools](#ranking-tools)
+        - [Links](#links)
         - [More papers](#more-papers)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -41,6 +42,12 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 
 [NeoepitopePred](#neoepitopepred) is an online-hosted workflow, can run from either single mutations or fusions.
 
+#### Links
+
+- [MHCMotifViewer](http://www.cbs.dtu.dk/biotools/MHCMotifViewer/) - diagrams of HLA allele motifs. Can be used to manually check epitope calls if have trust issues in predicion algorithms. The more letters match, the better:
+
+![](docs/hla_viewer.png)
+
 #### More papers
 
 - [Review (no fusions)](https://academic.oup.com/annonc/article/28/suppl_12/xii3/4582335)
@@ -48,6 +55,11 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 - [Fusion genes](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC516526/)
 
 - [Novel tools to assist neoepitope targeting in personalized cancer immunotherapy](https://academic.oup.com/annonc/article/28/suppl_12/xii3/4582335)
+
+- [Has nice intro to MHC I prediction methods](https://link.springer.com/article/10.1007/s12038-007-0004-5)
+
+- [MHC II prediction methods](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2913211/)
+
 
 ## Installation
 
