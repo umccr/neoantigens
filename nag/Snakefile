@@ -41,7 +41,7 @@ batch = batches[0]
 
 
 # pVACtools parameters
-EPITOPE_LENGTHS = '8,9,10,11'
+EPITOPE_LENGTHS = '9'  #'8,9,10,11'
 PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'  # NetMHCcons is ensemble of NetMHC,NetMHCpan,PickPocket
 
 # pVACfuse parameters
