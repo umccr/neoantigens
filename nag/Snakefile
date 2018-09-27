@@ -209,7 +209,7 @@ rule extract_indels:
     shell:  """
 bcftools view -v indels {input} | 
 bcftools query -f "%CHROM \\t %POS \\t %LEN \\n" | 
-awk '{{ OFS="\\t" }}{{ print $1,$2,$2 }}' > {output}
+awk '{{ OFS="\\t" }}{{ print $1,$2,$2+1 }}' > {output}
 """
 
 if RNA_SNAME:
