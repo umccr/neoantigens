@@ -171,7 +171,7 @@ def _report(fpath, kind, final_link_path):
 
     if os.path.islink(final_link_path):
         os.unlink(final_link_path)
-        os.symlink(relpath(fpath, final_link_path), final_link_path)
+    os.symlink(relpath(fpath, dirname(final_link_path)), final_link_path)
 
     unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.binding.tsv')
     if not isfile(unfiltered_fpath):
