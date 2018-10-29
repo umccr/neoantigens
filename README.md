@@ -30,7 +30,7 @@ As we move from vaccines targeting ‘shared’ tumor antigens to a more ‘pers
 
 #### Prediction methods
 
-Several in silico epitope binding prediction methods have been developed [11](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12175724), [12](http://scholar.google.com/scholar_lookup?title=A%20hybrid%20approach%20for%20predicting%20promiscuous%20MHC%20class%20I%20restricted%20T%20cell%20epitopes&author=M.%20Bhasin&author=G.%20Raghava&journal=J%20Biosci&volume=1&issue=32&pages=31-42&publication_year=2006), [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), [15](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25464113). These methods employ various computational approaches such as Artificial Neural Networks (ANN) and Support Vector Machines (SVM) and are trained on binding to different HLA class I alleles to effectively identify putative T cell epitopes.
+Several in silico epitope binding prediction methods have been developed [11](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12175724), [12](http://scholar.google.com/scholar_lookup?title=A%20hybrid%20approach%20for%20predicting%20promiscuous%20MHC%20class%20I%20restricted%20T%20cell%20epitopes&author=M.%20Bhasin&author=G.%20Raghava&journal=J%20Biosci&volume=1&issue=32&pages=31-42&publication_year=2006), [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), [15](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25464113). These methods employ various computational approaches such as Artificial Neural Networks (ANN) and Support Vector Machines (SVM) and are trained on binding to different HLA class I alleles to effectively identify putative T cell epitopes. Allele-specific software like NetMHC perform better compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data. However, pan-specific methods could be beneficial in cases where there is limited peptide binding data for training, for arbitrary HLA molecules, or when predicting epitopes for non-human species.
 
 #### Ranking tools
 
@@ -44,9 +44,14 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 
 #### Links
 
+- [Epitope tools in omictools](https://omictools.com/t-cell-epitopes-category)
+
+- [Nice tutorials](http://fred-2.github.io/getting-started/)
+
 - [MHCMotifViewer](http://www.cbs.dtu.dk/biotools/MHCMotifViewer/) - diagrams of HLA allele motifs. Can be used to manually check epitope calls if have trust issues in predicion algorithms. The more letters match, the better:
 
 ![](docs/hla_viewer.png)
+
 
 #### More papers
 
@@ -182,7 +187,7 @@ The data is prepared and pVACfuse is run within the NAG pepeline, refer to [usag
 
 #### Ideas
 
-- From [fusion gene calling papaer](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC516526/)):
+- From [fusion gene calling paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC516526/):
   - Each fusion transcript candidate aligned to the corresponding artificially fused genomic sequence by using the SIM4 program, and the alignment around the fusion point was manually inspected. Only those that aligned precisely, without a gap or overlap, were retained
   - The transcripts that included human repetitive sequences were removed by using the repeatmasker program 
   - Should we treat cDNA chimeras (breakpoint before transcription) from transcript chimeras (breakpoint before transcription)? "Chimeric transcripts can be distinguished from artificial chimeras, which are created by accidental ligation of different cDNAs during the cloning procedure, by examining the sequence at the fusion point. The fusion point in the chimeras from true fusion genes will usually coincide with a canonical exon boundary because the genes are likely to break in an intron because introns are generally much longer than exons. In contrast, the fusion point for an artificial chimera will usually be within an exon of each gene because the fusion occurs between two cDNAs."
@@ -203,7 +208,20 @@ Unfortunately, it requires to upload FASTQ or BAM data on the server, which migh
 
 OpenVax is a group at the Icahn School of Medicine at Mount Sinai that develop open source personalized cancer vaccine pipeline. Part of the tools are a predictor `MHCFlurry`, a wrapper `vaxrank`, and a NGS pipeline `neoantigen-vaccine-pipeline`. Exploring [here](docs/openvax.md).
 
+## MuPeXI
 
+Given a list of somatic mutations (VCF file), MuPeXI returns a table containing all mutated peptides (neo-peptides) of user-defined lengths, along with information relevant for identifying which of these neo-peptides are likely to serve as neo-epitopes. Works only with NetMHCpan.
+
+[GitHub](https://github.com/ambj/MuPeXI)
+
+[Paper](https://www.ncbi.nlm.nih.gov/pubmed/28429069)
+
+[Seerver](http://www.cbs.dtu.dk/services/MuPeXI)
+
+* Doesn't support fusions
+* Input: somatic mutations, a list of HLA types, optionally a gene expression profile. 
+* Output: tumor-specific peptides from SNPs and indels, and annotation: HLA binding and similarity to normal peptides. Sorted to a priority score which is intended to roughly predict immunogenicity. 
+* Only supports NetMHCpan
 
 
 
