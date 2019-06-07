@@ -21,7 +21,7 @@ work_dir      = 'work'
 loc = find_loc()
 ENSEMBL_DIR   = config.get('ensembl_dir', loc.ensembl_dir)
 ENSEMBL_VERS  = config.get('ensembl_release', 91)
-VEP_DATA      = config.get('vep_data', loc.vep_data)
+VEP_DATA_38   = '/g/data3/gx8/extras/umccrise/genomes/pcgr/data/grch38/.vep'
 IEDB_DIR      = config.get('iedb_dir', loc.iedb_dir)
 REF_FA        = config.get('ref_fa', get_ref_file('hg38', loc=loc))
 USE_REMOTE_DB = config.get('internet_is_on', False)
@@ -175,13 +175,13 @@ rule vcf_pon:
 
 rule vcf_vep:
     input:  join(work_dir, 'somatic.AFDP.FILT.PON.vcf'),
-            vep_data = VEP_DATA,
+            vep_data = VEP_DATA_38,
     output: join(work_dir, 'somatic.AFDP.FILT.PON.VEP.vcf')
     params: assembly = 'GRCh38'
     shell:  """
     vep --input_file {input} --format vcf --output_file {output} --vcf --force_overwrite \
     --pick --symbol --terms SO --plugin Downstream --plugin Wildtype \
-    --cache --dir_cache {input.vep_data}/GRCh38 --dir_plugins {input.vep_data}/Plugins \
+    --cache --dir_cache {input.vep_data} --dir_plugins {input.vep_data}/Plugins \
     --assembly {params.assembly} --offline
     """
 

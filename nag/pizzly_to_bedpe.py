@@ -90,7 +90,8 @@ cat sample.bedpe
               help='Reported only a part of fusion peptide around the breakpoint. Take `p` number of aminoacids '
                    'from each side of the fusion. Plus the junction peptide (the resulting peptide length will be `p`*2+1).')
 @click.option('-d', '--debug', is_flag=True)
-@click.option('--no-filtering', is_flag=True)
+@click.option('--no-filtering', 'no_filtering', is_flag=True)
+@click.option('--transcript-check/--no-transcript-check', 'check_transcript', is_flag=True, default=True)
 
 @click.option('--trx-fa', type=click.Path(), help='Reference transcriptome fasta')
 @click.option('-r', '--reads', type=click.Path(), help='Fastq files with reads for re-quantifying', multiple=True)
@@ -100,9 +101,10 @@ cat sample.bedpe
 # @click.option('--keep-noncoding', is_flag=True,
 #               help='Keep fusions that do not produce a peptide around the junction')
 def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_support=None, ensembl_release=None,
-         peptide_flanking_len=None, debug=False, no_filtering=False, trx_fa=None, reads=None, min_tpm=None):
+         peptide_flanking_len=None, debug=False, no_filtering=False, check_transcript=True,
+         trx_fa=None, reads=None, min_tpm=None):
 
-    input_flat_filt_fpath = prefix + '-flat-filtered.tsv'
+    # input_flat_fpath = prefix + '-flat.tsv'
     input_json_fpath = prefix + '.json'
     input_fasta = prefix + '.fusions.fasta'
     output_bedpe = abspath(output_bedpe)
@@ -112,10 +114,10 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
     ebl = EnsemblRelease(ensembl_release)
 
     # Reading filtered tsv
-    filt_fusions = set()
-    with open(input_flat_filt_fpath) as f:
-        for row in csv.DictReader(f, delimiter='\t'):
-            filt_fusions.add((row['geneA.name'], row['geneB.name']))
+    # filt_fusions = set()
+    # with open(input_flat_fpath) as f:
+    #     for row in csv.DictReader(f, delimiter='\t'):
+    #         filt_fusions.add((row['geneA.name'], row['geneB.name']))
 
     # Read json
     json_data = {'genes': []}
@@ -123,8 +125,8 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
         data = json.load(f)
         for g_event in data['genes']:
             gene_a, gene_b = g_event['geneA']['name'], g_event['geneB']['name']
-            if (gene_a, gene_b) in filt_fusions:
-                json_data['genes'].append(g_event)
+            # if (gene_a, gene_b) in filt_fusions:
+            json_data['genes'].append(g_event)
 
     # Read fasta
     fasta_dict = SeqIO.index(input_fasta, 'fasta')
@@ -134,14 +136,16 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
     fusions = []
     for g_event in json_data['genes']:  # {'geneA', 'geneB', 'paircount', 'splitcount', 'transcripts', 'readpairs'}
         gene_a, gene_b = g_event['geneA']['name'], g_event['geneB']['name']
-        logger.info(f'Processing event {gene_a}>>{gene_b}')
+        # logger.info(f'Processing event {gene_a}>>{gene_b}')
 
         met_fasta_keys = set()  # collecting to get rid of duplicate transcript events
         for t_event in g_event['transcripts']:
             fusion = Fusion.create_from_pizzly_event(ebl, t_event)
 
-            if not _transcript_is_good(fusion.side_5p.trx) or \
-               not _transcript_is_good(fusion.side_3p.trx): continue
+            if check_transcript:
+                if not _transcript_is_good(fusion.side_5p.trx) or not _transcript_is_good(fusion.side_3p.trx):
+                    logger.info(f'Transcripts {fusion.side_5p.trx} and {fusion.side_3p.trx} didn\'t pass check')
+                    continue
 
             if no_filtering is not True and fusion.support < min_read_support: continue
 
@@ -157,8 +161,14 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
             met_fasta_keys.add(k)
 
             fusions.append(fusion)
-        if not met_fasta_keys:
-            logger.info('   Filtered all fusions for this gene pair.')
+        # if not met_fasta_keys:
+        #     logger.info('   Filtered all fusions for this gene pair.')
+        if met_fasta_keys:
+            logger.info(f'Keeping {len(met_fasta_keys)} fusion(s)')
+
+    if not fusions:
+        logger.warn('Finished: no fusions passed filtering')
+        sys.exit(0)
 
     # Calculate expression of fused transcripts
     expr_by_fusion = None
@@ -182,15 +192,16 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
     bedpe_entries = []
     peptide_fusions = []
     for fusion in fusions:
-        logger.info(f'Translating {fusion.side_5p.trx.gene.name}>>{fusion.side_3p.trx.gene.name} fusion: {fusion}')
-        fusion.make_peptide(peptide_flanking_len)
-        if fusion.peptide:
-            _verify_peptides(fusion.fasta_rec, fusion, peptide_flanking_len)
+        if fusion.side_3p.trx.contains_start_codon:
+            logger.info(f'Translating {fusion.side_5p.trx.gene.name}>>{fusion.side_3p.trx.gene.name} fusion: {fusion}')
+            fusion.make_peptide(peptide_flanking_len)
+            if fusion.peptide:
+                _verify_peptides(fusion.fasta_rec, fusion, peptide_flanking_len)
 
-        # skipping duplicate peptides
-        k = fusion.side_5p.trx.gene.name, fusion.side_3p.trx.gene.name, fusion.peptide
-        if k in met_peptide_keys: continue
-        met_peptide_keys.add(k)
+            # skipping duplicate peptides
+            k = fusion.side_5p.trx.gene.name, fusion.side_3p.trx.gene.name, fusion.peptide
+            if k in met_peptide_keys: continue
+            met_peptide_keys.add(k)
 
         # writing bedpe
         entry = fusion.to_bedpe()
@@ -200,7 +211,8 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
             entry.update(expr_by_fusion[fusion.fasta_rec.id])
             if no_filtering is not True and float(entry['tpm']) < min_tpm: continue
 
-        peptide_fusions.append(fusion)
+        if fusion.peptide:
+            peptide_fusions.append(fusion)
         bedpe_entries.append(entry)
 
     # Writing bedpe

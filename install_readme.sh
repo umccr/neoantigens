@@ -1,8 +1,8 @@
 # Don't source it. Follow carefully.
 
-ENSEMBL_VERSION="91"
+ENSEMBL_VERSION="94"
 ENSEMBL_DIR=/g/data3/gx8/extras/ensembl
-export VEP_DATA=${ENSEMBL_DIR}/vep_data
+VEP_DATA_38='/g/data3/gx8/extras/umccrise/genomes/pcgr/data/grch38/.vep'
 
 # Enviornment
 conda env create -p nag --file environment.yml
@@ -11,12 +11,12 @@ pip install -e .
 
 
 ########################
-### Install VEP
-if [ ! -d ${VEP_DATA} ] ; then
-    mkdir ${VEP_DATA}
-    vep_install -a cf -s homo_sapiens -y GRCh38 --DESTDIR ${VEP_DATA} --CACHEDIR ${VEP_DATA}/GRCh38
-    vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream
-fi
+### Install VEP [SKIP that: using the on from PCGR]
+#if [ ! -d ${VEP_DATA} ] ; then
+#    mkdir ${VEP_DATA}
+#    vep_install -a cf -s homo_sapiens -y GRCh38 --DESTDIR ${VEP_DATA} --CACHEDIR ${VEP_DATA}/GRCh38
+#    vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream
+#fi
 
 
 ########################
@@ -24,7 +24,7 @@ fi
 pip install pvactools
 # override the codebase from our fork:
 git clone https://github.com/vladsaveliev/pVACtools ; cd pVACtools ; pip install . ;  cd ..
-pvacseq install_vep_plugin $VEP_DATA/Plugins
+pvacseq install_vep_plugin ${VEP_DATA_38}/Plugins
 
 
 ########################
@@ -64,10 +64,10 @@ fi
 ########################
 ### pyensembl (to convert pizzly to bedpe)
 pip install "gtfparse>=1.1" "pyensembl>=1.7.2"
-export PYENSEMBL_CACHE_DIR=$ENSEMBL_DIR
-if [ ! -d $PYENSEMBL_CACHE_DIR/pyensembl ] ; then
+export PYENSEMBL_CACHE_DIR=${ENSEMBL_DIR}
+if [ ! -d ${PYENSEMBL_CACHE_DIR}/pyensembl ] ; then
     # In 2 steps: first on loging node to make it download the files:
-    pyensembl install --release $ENSEMBL_VERSION --species human
+    pyensembl install --release ${ENSEMBL_VERSION} --species human
     # when it starts `Reading GTF from`, go into a worker node and run again.
 fi
 
