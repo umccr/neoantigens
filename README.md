@@ -30,7 +30,25 @@ As we move from vaccines targeting ‘shared’ tumor antigens to a more ‘pers
 
 #### Prediction methods
 
-Several in silico epitope binding prediction methods have been developed [11](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12175724), [12](http://scholar.google.com/scholar_lookup?title=A%20hybrid%20approach%20for%20predicting%20promiscuous%20MHC%20class%20I%20restricted%20T%20cell%20epitopes&author=M.%20Bhasin&author=G.%20Raghava&journal=J%20Biosci&volume=1&issue=32&pages=31-42&publication_year=2006), [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), [15](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25464113). These methods employ various computational approaches such as Artificial Neural Networks (ANN) and Support Vector Machines (SVM) and are trained on binding to different HLA class I alleles to effectively identify putative T cell epitopes. Allele-specific software like NetMHC perform better compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data. However, pan-specific methods could be beneficial in cases where there is limited peptide binding data for training, for arbitrary HLA molecules, or when predicting epitopes for non-human species.
+Several in silico epitope binding prediction methods have been developed:
+ [11](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12175724), 
+ [12](http://scholar.google.com/scholar_lookup?title=A%20hybrid%20approach%20for%20predicting%20promiscuous%20MHC%20class%20I%20restricted%20T%20cell%20epitopes&author=M.%20Bhasin&author=G.%20Raghava&journal=J%20Biosci&volume=1&issue=32&pages=31-42&publication_year=2006), 
+ [13](https://scholar.google.com/scholar?hl=en&q=Lundegaard%20C%2C%20Lamberth%20K%2C%20Harndahl%20M%2C%20Buus%20S%2C%20Lund%20O%2C%20Nielsen%20M.%20NetMHC-3.0%3A%20accurate%20web%20accessible%20predictions%20of%20human%2C%20mouse%20and%20monkey%20MHC%20class%20I%20affinities%20for%20peptides%20of%20length%208-11.%20Nucleic%20Acids%20Res.%202008%3B36%28Web%20Server%20issue%29%3AW509%E2%80%93512.), 
+ [14](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=12717023), 
+ [15](http://www.ncbi.nlm.nih.gov/entrez/query.fcgi?cmd=Retrieve&db=PubMed&dopt=Abstract&list_uids=25464113). 
+These methods employ various computational approaches such as Artificial Neural Networks (ANN) and Support Vector Machines (SVM) and are trained on binding to different HLA class I alleles to effectively identify putative T cell epitopes. Allele-specific software like NetMHC perform better compared to pan-specific methods such as NetMHCpan in case of well-characterized alleles due to availability of large amounts of training data. However, pan-specific methods could be beneficial in cases where there is limited peptide binding data for training, for arbitrary HLA molecules, or when predicting epitopes for non-human species.
+
+Class I predictors: SMM [111], SMMPMBEC [112], Pickpocket [113], NetMHC [114], NetMHCpan [87], NetMHCcons [180], MHCflurry [102], MHCnuggets [181], MHCSeqNet [103], EDGE [104]
+
+Class II predictors: SMMAlign [111], NNAlign [182], ProPred [183], NetMHCII(2.3) and NetMHCIIpan(3.2) [116], TEPITOPE [184], TEPITOPEpan [185], RANKPEP [186], MultiRTA [187], OWA-PSSM [188]
+
+#### Peptide processing
+
+- NetChop20S [89], 
+- NetChopCterm [89], 
+- ProteaSMM [89, 90], 
+- PAProC [179] (Class I), 
+- PepCleaveCD4 [91] (Class II)
 
 #### Ranking tools
 
@@ -41,6 +59,16 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 [vaxrank](docs/vaxrank.md) is another workflow that prioritizes epitopes after running them agains prediction software like NetMHC.
 
 [NeoepitopePred](#neoepitopepred) is an online-hosted workflow, can run from either single mutations or fusions.
+
+#### HLA typing
+
+HLA typing is needed to identify which HLA genes we need to check binding againt. Tools are
+
+- Class I: Optitype [69], Polysolver [70]
+- Class I and II: Athlates [70, 175], HLAreporter [176], HLAminer [176, 177], HLAscan [72, 178], HLA-VBSeq [72], PHLAT [71], seq2HLA [73], xHLA [74]
+
+
+
 
 #### Links
 
@@ -65,6 +93,7 @@ There are also existing tools ([IEDB](http://www.ncbi.nlm.nih.gov/entrez/query.f
 
 - [MHC II prediction methods](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2913211/)
 
+- Nice review: https://www.sevenbridges.com/neoantigen-discovery-using-ngs-data/
 
 ## Installation
 

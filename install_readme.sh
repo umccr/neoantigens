@@ -1,14 +1,13 @@
 # Don't source it. Follow carefully.
 
-ENSEMBL_VERSION="94"
-ENSEMBL_DIR=/g/data3/gx8/extras/ensembl
-VEP_DATA_38='/g/data3/gx8/extras/umccrise/genomes/pcgr/data/grch38/.vep'
+ENSEMBL_VERSION="98"
+ENSEMBL_DIR=/Users/vsaveliev/bio/genomes/pyensembl   #/g/data3/gx8/extras/ensembl
+VEP_DATA_38=/Users/vsaveliev/bio/genomes/pcgr/data/grch38/.vep/homo_sapiens/98_GRCh38/ # /g/data3/gx8/extras/umccrise_2019_Aug/genomes/pcgr/data/grch38/.vep
 
 # Enviornment
 conda env create -p nag --file environment.yml
 conda activate nag
 pip install -e .
-
 
 ########################
 ### Install VEP [SKIP that: using the on from PCGR]
@@ -18,18 +17,19 @@ pip install -e .
 #    vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream
 #fi
 
-
 ########################
 ### Install pVACtools
 pip install pvactools
 # override the codebase from our fork:
-git clone https://github.com/vladsaveliev/pVACtools ; cd pVACtools ; pip install . ;  cd ..
+git clone https://github.com/vladsaveliev/pVACtools
+pip install pVACtools
+mkdir ${VEP_DATA_38}/Plugins
 pvacseq install_vep_plugin ${VEP_DATA_38}/Plugins
 
 
 ########################
 ### Download local IEDB
-export IEDB_DIR=/g/data3/gx8/extras/iedb
+IEDB_DIR=/Users/vsaveliev/rjn/extras/iedb #/g/data3/gx8/extras/iedb
 if [ ! -d $IEDB_DIR ] ; then
     cd $IEDB_DIR
     # Download from [http://tools.iedb.org/mhcii/download](http://tools.iedb.org/mhcii/download/):
@@ -57,7 +57,7 @@ if [ ! -d $IEDB_DIR ] ; then
     cd mhc_ii
     ./configure.py
 
-    conda activate pvac
+    conda activate nag
 fi
 
 
@@ -71,7 +71,6 @@ if [ ! -d ${PYENSEMBL_CACHE_DIR}/pyensembl ] ; then
     # when it starts `Reading GTF from`, go into a worker node and run again.
 fi
 
-
 ########################
 ### bam-readcount (for pvacseq coverage of rnaseq)
 # bam-readcount cannot install into the same conda env, thus we are creating a separate one:
@@ -80,3 +79,5 @@ conda activate bam-readcount
 BAM_READCOUNT=$(which bam-readcount)
 conda activate nag
 cp $BAM_READCOUNT $CONDA_PREFIX/bin
+
+

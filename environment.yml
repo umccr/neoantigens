@@ -8,7 +8,8 @@ channels:
   - anaconda
 
 dependencies:
-  - python==3.6
+  - python
+  - pip
   - snakemake-minimal
   - bcftools
   - tabix
@@ -21,10 +22,12 @@ dependencies:
   - vcfanno               # for PoN
   - numpy
   - cufflinks             # for expression data for pVACseq
+  - tensorflow <2
+  - watchdog
   # - pyensembl           # install with pip - conda version errors out (also needs gtfparse>1.1)
     #
   # Actively developed accompanying libraries
   - pip:
     - "--editable=git+https://github.com/umccr/hpc_utils#egg=hpc_utils"
     - "--editable=git+https://github.com/vladsaveliev/NGS_Utils#egg=ngs_utils"
-    - "--editable=git+https://github.com/umccr/vcf_stuff#egg=vcf_stuff"
+    - "--editable=git+https://github.com/vladsaveliev/vcf_stuff#egg=vcf_stuff"

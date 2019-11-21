@@ -16,6 +16,8 @@ from ngs_utils.utils import set_locale; set_locale()
 from ngs_utils import snakemake_utils
 from nag import package_path
 
+from hpc_utils import hpc
+
 
 @click.command()
 @click.argument('dna_bcbio', type=click.Path(exists=True))
@@ -25,7 +27,7 @@ from nag import package_path
 @click.option('-s', '--sample')
 @click.option('-R', '--rna-bcbio', type=click.Path())
 @click.option('-r', '--rna-sample')
-@click.option('--ensembl-release')
+@click.option('--ensembl-release', 'ensembl_release')
 @click.option('--min-tvaf', help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 10 (%). '
                                  'Set if you know sample tumor purity.')
 
@@ -34,9 +36,12 @@ from nag import package_path
 @click.option('-c', '--cluster-auto', 'cluster', is_flag=True, help='Submit jobs to cluster')
 @click.option('--unlock', is_flag=True, help='Propagaded to snakemake')
 @click.option('--restart-times', default=1, help='Propagaded to snakemake.')
+@click.option('--restart-times', default=1, help='Propagaded to snakemake.')
+@click.option('--genomes', '--genomes-dir', 'input_genomes_dir', help='Path to the reference data')
 
 def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None, rna_bcbio=None, rna_sample=None,
          ensembl_release=None, min_tvaf=None, jobs=None, cluster=False, unlock=False, restart_times=None,
+         input_genomes_dir=None,
     ):
     target_rule = list(target_rule)
 
@@ -45,9 +50,13 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
     log_dir = safe_mkdir(join(output_dir, 'log'))
     logger.init(log_fpath_=join(log_dir, 'neoantigens.log'), save_previous=True)
 
+    # check hpc_utils can find the genomes dir, and error out if not
+    hpc.set_genomes_dir(input_genomes_dir)
+
     conf = dict()
     conf['dna_bcbio'] = verify_dir(dna_bcbio, is_critical=True)
     conf['dna_sample'] = dna_sample
+
     if rna_sample and rna_bcbio:
         conf['rna_sample'] = rna_sample
         conf['rna_bcbio'] = rna_bcbio
@@ -55,10 +64,18 @@ def main(dna_bcbio, dna_sample, target_rule=list(), sample=None, output_dir=None
         if 'pvacfuse' in target_rule:
             logger.critical('Cannot run pVACfuse without RNA data')
         target_rule = ['pvacseq']
+
     if sample:
         conf['sample'] = sample
+
+    if input_genomes_dir:
+        conf['genomes_dir'] = input_genomes_dir
+
     if ensembl_release:
         conf['ensembl_release'] = ensembl_release
+    elif os.environ.get('ENSEMBL_VERSION'):
+        conf['ensembl_release'] = os.environ.get('ENSEMBL_VERSION')
+
     if min_tvaf:
         conf['min_tvaf'] = min_tvaf
 
