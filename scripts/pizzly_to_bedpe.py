@@ -86,7 +86,7 @@ ENSEMBL_RELEASE=95
 @click.option('--output-fasta', type=click.Path(), help='Filtered fasta file having only fusions from bedpe')
 @click.option('--output-json', type=click.Path(), help='Filtered JSON file having only fusions from bedpe')
 @click.option('-s', '--min-read-support', help='Minimal read support to keep an event', default=5)
-@click.option('-e', '--ensembl-release', default=91, help='Set to 75 for GRCh37')
+@click.option('-e', '--ensembl-release', default=ENSEMBL_RELEASE, help='Set to 75 for GRCh37')
 @click.option('-p', '--peptide-flanking-len', type=int,
               help='Reported only a part of fusion peptide around the breakpoint. Take `p` number of aminoacids '
                    'from each side of the fusion. Plus the junction peptide (the resulting peptide length will be `p`*2+1).')
@@ -94,7 +94,8 @@ ENSEMBL_RELEASE=95
 @click.option('--no-filtering', 'no_filtering', is_flag=True)
 @click.option('--transcript-check/--no-transcript-check', 'check_transcript', is_flag=True, default=True)
 
-@click.option('--trx-fa', type=click.Path(), help='Reference transcriptome fasta')
+@click.option('--pizzly-ref-fa', 'pizzly_ref_fa', type=click.Path(), help='Pizzly transcriptome fasta reference for requantification,'
+              'e.g. /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/local_rnaseq/work/pizzly/hg38-noversions.fa')
 @click.option('-r', '--reads', type=click.Path(), help='Fastq files with reads for re-quantifying', multiple=True)
 @click.option('-t', '--min-tpm', help='Minimal TPM for a transcript. Re-quanifies with kallisto, '
                                       'thus applies only if reads are available.', default=1)
@@ -103,7 +104,7 @@ ENSEMBL_RELEASE=95
 #               help='Keep fusions that do not produce a peptide around the junction')
 def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_support=None, ensembl_release=None,
          peptide_flanking_len=None, debug=False, no_filtering=False, check_transcript=True,
-         trx_fa=None, reads=None, min_tpm=None):
+         pizzly_ref_fa=None, reads=None, min_tpm=None):
 
     # input_flat_fpath = prefix + '-flat.tsv'
     input_json_fpath = prefix + '.json'
@@ -182,10 +183,9 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
         fasta_recs = [f.fasta_rec for f in fusions]
         SeqIO.write(fasta_recs, fasta_path, 'fasta')
 
-        trx_fa = trx_fa or splitext(get_ref_file('hg38', 'gtf'))[0] + '.fa'
-        assert isfile(trx_fa)
-        expr_by_fusion = requanitify_pizzly(trx_fa, fasta_path, work_dir, reads)
-        # expr_by_fusion = {fusion-fasta-id -> {length  eff_length  est_counts   tpm}}
+        if pizzly_ref_fa:
+            expr_by_fusion = requanitify_pizzly(pizzly_ref_fa, fasta_path, work_dir, reads)
+            # expr_by_fusion = {fusion-fasta-id -> {length  eff_length  est_counts   tpm}}
 
     # Second round: peptides and expression
     logger.info()
@@ -638,14 +638,14 @@ def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
     assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
 
 
-def requanitify_pizzly(ref_fa, fusions_fasta, work_dir, fastq):
+def requanitify_pizzly(pizzly_ref_fa, fusions_fasta, work_dir, fastq):
     """ Returns dict fusion-fasta-id -> {length  eff_length  est_counts   tpm}
     """
     trx_with_fusions = join(work_dir, 'transcripts_with_fusions.fasta.gz')
     kidx = join(work_dir, 'transcripts_with_fusions.kidx')
 
     if not isfile(trx_with_fusions):
-        run_simple(f"cat {ref_fa} {fusions_fasta} | gzip -c > {trx_with_fusions}")
+        run_simple(f"cat {pizzly_ref_fa} {fusions_fasta} | gzip -c > {trx_with_fusions}")
 
     if not isfile(kidx):
         run_simple(f"kallisto index -k31 -i {kidx} {trx_with_fusions}")

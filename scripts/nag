@@ -30,21 +30,23 @@ from nag import package_path
 @click.option('-R', '--rna-bcbio', 'rna_bcbio', type=click.Path())
 @click.option('-r', '--rna-sample', 'rna_sample')
 @click.option('--ensembl-release', 'ensembl_release')
-@click.option('--min-tvaf', help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 10 (%). '
-                                 'Set if you know sample tumor purity.')
+@click.option('--pizzly-ref-fa', 'pizzly_ref_fa', type=click.Path(), help='Pizzly transcriptome fasta reference for requantification,'
+              'e.g. /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/local_rnaseq/work/pizzly/hg38-noversions.fa')
+@click.option('--min-tvaf',
+              help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 10 (%). '
+                   'Set if you know sample tumor purity.')
 
-@click.option('-j', '--jobs', 'jobs', default=1, help='Maximum number of cores to use at single time (works both for '
-                                                      'local and cluster runs)')
+@click.option('-j', '--jobs', 'jobs', default=1,
+              help='Maximum number of cores to use at single time (works both for local and cluster runs)')
 @click.option('-c', '--cluster-auto', 'cluster', is_flag=True, help='Submit jobs to cluster')
 @click.option('--unlock', 'unlock', is_flag=True, help='Propagaded to snakemake')
-@click.option('--restart-times', 'restart_times', default=1, help='Propagaded to snakemake.')
+@click.option('--restart-times', 'restart_times', default=0, help='Propagaded to snakemake.')
 @click.option('--genomes', '--genomes-dir', 'input_genomes_url', help='Path to the reference data. Can be s3 or gds')
 
 def main(dna_bcbio, dna_sample, include_stages:list = None, exclude_stages:list = None,
          sample=None, output_dir=None, rna_bcbio=None, rna_sample=None,
-         ensembl_release=None, min_tvaf=None, jobs=None, cluster=False, unlock=False, restart_times=None,
-         input_genomes_url=None
-    ):
+         ensembl_release=None, pizzly_ref_fa=None, min_tvaf=None, jobs=None, cluster=False, unlock=False,
+         restart_times=None, input_genomes_url=None):
     output_dir = output_dir or 'neoantigens'
     output_dir = safe_mkdir(abspath(output_dir))
     log_dir = safe_mkdir(join(output_dir, 'log'))
@@ -74,6 +76,11 @@ def main(dna_bcbio, dna_sample, include_stages:list = None, exclude_stages:list 
         conf['ensembl_release'] = ensembl_release
     elif os.environ.get('ENSEMBL_VERSION'):
         conf['ensembl_release'] = os.environ.get('ENSEMBL_VERSION')
+
+    if pizzly_ref_fa:
+        conf['pizzly_ref_fa'] = pizzly_ref_fa
+    elif os.environ.get('PIZZLY_REF_FA'):
+        conf['pizzly_ref_fa'] = os.environ.get('PIZZLY_REF_FA')
 
     if min_tvaf:
         conf['min_tvaf'] = min_tvaf

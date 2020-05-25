@@ -227,6 +227,15 @@ if RNA_SNAME:
     rna_counts = join(rna_sample.dirpath, 'kallisto', 'abundance.tsv')
     rna_pizzly_prefix = join(rna_sample.dirpath, 'pizzly', RNA_SNAME)
     fastq = [f for f in rna_sample.sample_info['files'] if not f.endswith('.bam') and verify_file(f, silent=True)]
+    if not fastq:
+        bam = rna_sample.sample_info['files'][0]
+        assert bam.endswith('bam'), f'Input for sample {RNA_SNAME} is neither a pair of fastq nor a BAM file: {bam}'
+        bam_name = splitext(basename(bam))[0]
+        fastq1 = verify_file(join(rna_run.work_dir, 'align_prep', f'{bam_name}-1.fq.gz'))
+        fastq2 = verify_file(join(rna_run.work_dir, 'align_prep', f'{bam_name}-2.fq.gz'))
+        if not fastq1 and not fastq2:
+            critical('Could not find RNAseq input fastq for requantification')
+        fastq = [fastq1, fastq2]
 
     # RNAseq BAMs (for pVACseq coverageFilter)
 
@@ -258,15 +267,19 @@ if RNA_SNAME:
         input:  rna_pizzly_prefix + '-flat-filtered.tsv',
                 rna_pizzly_prefix + '.json',
                 rna_pizzly_prefix + '.fusions.fasta',
-                reads1 = fastq[0] if len(fastq) > 0 else [],
-                reads2 = fastq[1] if len(fastq) > 1 else [],
+                reads1 = fastq[0],
+                reads2 = fastq[1],
         params: prefix = rna_pizzly_prefix,
                 pep_5_prime_flank = PEP_5_PRIME_FLANK,
+                pyensembl_basedir = dirname(PYENSEMBL_DIR),
+                pyensembl_release = ENSEMBL_RELEASE,
+                pizzly_ref_fa_opt = f'--pizzly-ref-fa {PIZZLY_REF_FA} ' if PIZZLY_REF_FA else '',
         output: join(work_dir, 'pizzly', SNAME + '.bedpe')
         shell:  """
-        export PYENSEMBL_CACHE_DIR={ENSEMBL_DIR} && pizzly_to_bedpe.py {params.prefix} -o {output} 
-        -p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} 
-        && [ -s {output} ]
+        export PYENSEMBL_CACHE_DIR={params.pyensembl_basedir} && \
+        pizzly_to_bedpe.py {params.prefix} -o {output} -e {params.pyensembl_release} \
+        -p {params.pep_5_prime_flank} -r {input.reads1} -r {input.reads2} {params.pizzly_ref_fa_opt} && \
+        test -s {output}
         """
 
 
