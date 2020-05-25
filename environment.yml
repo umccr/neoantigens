@@ -9,25 +9,27 @@ channels:
 
 dependencies:
   - python
-  - pip
+  - versionpy
+  - ngs_utils
+  - natsort
   - snakemake-minimal
+  - click
+  - pyyaml
+  - pysam
+  - numpy
   - bcftools
   - tabix
   - ensembl-vep           # to annotate VCF for pVACseq
-  - cmake                 # to install INTEGRATE-Neo
-  - ucsc-gtftogenepred    # to prepare data for fusionBedpeAnnotator
-  - ngs_utils
-  - pyyaml
-  - click
-  - vcfanno               # for PoN
-  - numpy
-  - cufflinks             # for expression data for pVACseq
-  - tensorflow <2
-  - watchdog
-  # - pyensembl           # install with pip - conda version errors out (also needs gtfparse>1.1)
-    #
-  # Actively developed accompanying libraries
+#  - cmake                 # to install INTEGRATE-Neo
+#  - ucsc-gtftogenepred    # to prepare data for fusionBedpeAnnotator
+#  - cufflinks             # for expression data for pVACseq
+#  - tensorflow <2
+#  - watchdog
+  - pyensembl           # install with pip - conda version errors out (also needs gtfparse>1.1)
+  - kallisto
+  - mamba
   - pip:
-    - "--editable=git+https://github.com/umccr/hpc_utils#egg=hpc_utils"
-    - "--editable=git+https://github.com/vladsaveliev/NGS_Utils#egg=ngs_utils"
-    - "--editable=git+https://github.com/vladsaveliev/vcf_stuff#egg=vcf_stuff"
+    - "git+https://github.com/vladsaveliev/NGS_Utils#egg=ngs_utils"
+    - "git+https://github.com/vladsaveliev/vcf_stuff#egg=vcf_stuff"
+    - "git+https://github.com/umccr/reference_data#egg=reference_data"
+    - "git+https://github.com/vladsaveliev/snakemake#egg=snakemake"
