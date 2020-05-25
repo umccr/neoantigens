@@ -1,12 +1,13 @@
 # Don't source it. Follow carefully.
 
-ENSEMBL_VERSION="98"
-ENSEMBL_DIR=/Users/vsaveliev/bio/genomes/pyensembl   #/g/data3/gx8/extras/ensembl
-VEP_DATA_38=/Users/vsaveliev/bio/genomes/pcgr/data/grch38/.vep/homo_sapiens/98_GRCh38/ # /g/data3/gx8/extras/umccrise_2019_Aug/genomes/pcgr/data/grch38/.vep
+ENSEMBL_VERSION=95
+ENSEMBL_DIR=/Users/vsaveliev/bio/genomes   #/g/data3/gx8/extras/ensembl
+VEP_DATA=/Users/vsaveliev/bio/genomes/pcgr/data/grch38/.vep/homo_sapiens/98_GRCh38/ # /g/data3/gx8/extras/umccrise_2019_Aug/genomes/pcgr/data/grch38/.vep
+ENV_LOCATION=/g/data3/gx8/extras/vlad/miniconda/envs/nag
 
 # Enviornment
-conda env create -p nag --file environment.yml
-conda activate nag
+conda env create -n $ENV_LOCATION --file environment.yml
+export PATH=$ENV_LOCATION/bin:$PATH
 pip install -e .
 
 ########################
@@ -23,8 +24,8 @@ pip install pvactools
 # override the codebase from our fork:
 git clone https://github.com/vladsaveliev/pVACtools
 pip install pVACtools
-mkdir ${VEP_DATA_38}/Plugins
-pvacseq install_vep_plugin ${VEP_DATA_38}/Plugins
+mkdir ${VEP_DATA}/Plugins
+pvacseq install_vep_plugin ${VEP_DATA}/Plugins
 
 
 ########################

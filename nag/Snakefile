@@ -1,3 +1,4 @@
+import glob
 import os
 
 shell.executable(os.environ.get('SHELL', 'bash'))
@@ -7,35 +8,36 @@ from os.path import join, abspath, dirname, isfile, basename, splitext
 from ngs_utils.bcbio import BcbioProject
 from ngs_utils.logger import critical, info, debug, warn, err
 from ngs_utils.file_utils import verify_file
-from hpc_utils.hpc import get_ref_file
-from hpc_utils import hpc
+from reference_data import api as refdata
+
 if config.get('genomes_dir'):
-    hpc.set_genomes_dir(config.get('genomes_dir'))
-
-print(hpc.genomes_dir)
-
-
-DNA_BCBIO     = config['dna_bcbio']
-DNA_SNAME     = config.get('dna_sample')
-RNA_BCBIO     = config.get('rna_bcbio')
-RNA_SNAME     = config.get('rna_sample')
-SNAME         = config.get('sample') or DNA_SNAME
-work_dir      = 'work'
+    refdata.find_genomes_dir(config.get('genomes_dir'))
+print('Genomes dir:', refdata.genomes_dir)
 
 
-ENSEMBL_DIR   = config.get('ensembl_dir', get_ref_file(key='pyensembl_data'))
-ENSEMBL_VERS  = config.get('ensembl_release', 98)
-VEP_DATA_38   = join(get_ref_file(key='pcgr_data'), 'data/grch38/.vep')
-IEDB_DIR      = config.get('iedb_dir', get_ref_file(key='iedb_dir'))
-REF_FA        = config.get('ref_fa', get_ref_file(genome='hg38', key='fa'))
-USE_REMOTE_DB = config.get('internet_is_on', False)
+DNA_BCBIO       = config['dna_bcbio']
+DNA_SNAME       = config.get('dna_sample')
+RNA_BCBIO       = config.get('rna_bcbio')
+RNA_SNAME       = config.get('rna_sample')
+SNAME           = config.get('sample') or DNA_SNAME
+work_dir        = 'work'
+
+GENOME          = 'hg38'
+ENSEMBL_GENOME  = 'GRCh38'
+ENSEMBL_RELEASE = config.get('ensembl_release', 95)
+PYENSEMBL_DIR   = config.get('ensembl_dir', refdata.get_ref_file(genome=GENOME, key='pyensembl_data'))
+VEP_DATA        = glob.glob(join(refdata.get_ref_file(genome=GENOME, key='pcgr_data'), '*/.vep'))[0]
+IEDB_DIR        = config.get('iedb_dir', refdata.get_ref_file(key='iedb_dir'))
+REF_FA          = config.get('ref_fa', refdata.get_ref_file(genome=GENOME, key='fa'))
+USE_REMOTE_DB   = config.get('internet_is_on', False)
+PIZZLY_REF_FA   = config.get('pizzly_ref_fa')
 
 
 ################################################
 ### hg38 DNA Project. Required for HLA typing.
 
 dna_run = BcbioProject(DNA_BCBIO, include_samples=[DNA_SNAME])
-assert dna_run.genome_build == 'hg38'
+assert dna_run.genome_build == GENOME
 if len(dna_run.batch_by_name) == 0:
     critical(f'Error: could not find a sample with the name {DNA_SNAME}. Check yaml file for available options: {dna_run.bcbio_yaml_fpath}')
 # Batch objects index by tumor sample names
@@ -167,7 +169,7 @@ rule vcf_af_filter:  # {batch}
             tcov = MIN_TUMOR_COV,
             ncov = MIN_NORMAL_COV,
     shell:  """
-    bcftools filter -i "TUMOR_AF>={params.tvaf} && NORMAL_AF<={params.nvaf} && TUMOR_DP>={params.tcov} && 
+    bcftools filter -i "TUMOR_AF>={params.tvaf} && NORMAL_AF<={params.nvaf} && TUMOR_DP>={params.tcov} && \
     NORMAL_DP>={params.ncov}" {input} -Oz -o {output} && tabix {output}
     """
 
@@ -179,10 +181,10 @@ rule vcf_pon:
 
 rule vcf_vep:
     input:  join(work_dir, 'somatic.AFDP.FILT.PON.vcf'),
-            vep_data = VEP_DATA_38,
+         vep_data = VEP_DATA,
     output: join(work_dir, 'somatic.AFDP.FILT.PON.VEP.vcf')
-    params: assembly = 'GRCh38',
-            cache_version = ENSEMBL_VERS
+    params: assembly = ENSEMBL_GENOME,
+            cache_version = ENSEMBL_RELEASE
     shell:  """
     vep --input_file {input} --format vcf --output_file {output} --vcf --force_overwrite \
     --pick --symbol --terms SO --plugin Downstream --plugin Wildtype \

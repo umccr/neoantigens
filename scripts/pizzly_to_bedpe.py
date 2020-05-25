@@ -16,7 +16,7 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Data import CodonTable
 from memoized_property import memoized_property
-from hpc_utils.hpc import get_ref_file
+from reference_data import api as refdata
 
 
 """
@@ -78,6 +78,7 @@ cat sample.bedpe
 ```
 """
 
+ENSEMBL_RELEASE=95
 
 @click.command()
 @click.argument('prefix')
@@ -111,7 +112,9 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
 
     logger.init(debug)
 
-    ebl = EnsemblRelease(ensembl_release)
+    global ENSEMBL_RELEASE
+    ENSEMBL_RELEASE = ensembl_release
+    ebl = EnsemblRelease(ENSEMBL_RELEASE)
 
     # Reading filtered tsv
     # filt_fusions = set()
@@ -384,7 +387,7 @@ class FusionSide:
         start = int(t_data['startPos'])
         end = int(t_data['endPos'])
 
-        assert start == 0, f'For 5\' transcript {trx.id}, start pos = {start}'
+        assert start == 0, f'For 5\' transcript {trx.id}, start pos = {start} != 0. '
         return FusionSide(trx, bp_offset=end)
 
     @staticmethod
@@ -395,7 +398,9 @@ class FusionSide:
         start = int(t_data['startPos'])
         end = int(t_data['endPos'])
 
-        assert end == len(trx), f'For 3\' transcript {trx.id}>>{trx.id}, end pos = {end}'
+        assert end == len(trx), f'The transcript {trx.id} length in pizzly results ({end}) mismatches this transcript ' \
+                                f'length {len(trx)} in Ensembl release {ENSEMBL_RELEASE}. ' \
+                                f'Double check if the same Ensembl release is used in pizzly.'
         return FusionSide(trx, bp_offset=start)
 
 class Fusion:
