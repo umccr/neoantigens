@@ -1,21 +1,21 @@
 #!/usr/bin/env python
-from setuptools import setup
 from os.path import join
-
-version = '0.2'
-name = 'nag'
+from setuptools import setup
+import versionpy
+package_name = 'nag'
+version = versionpy.get_version(package_name)
 
 setup(
-    name=name,
+    name=package_name,
     version=version,
     author='Vlad Saveliev',
     description='UMCCR neoantigens calling pipeline',
     keywords='bioinformatics',
     license='GPLv3',
-    packages=[name],
+    packages=[package_name],
     scripts=[
-        join(name, 'pizzly_to_bedpe.py'),
-        join(name, name),
+        join('scripts', 'pizzly_to_bedpe.py'),
+        join('scripts', 'nag'),
     ],
     include_package_data=True,
 )
