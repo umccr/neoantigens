@@ -254,7 +254,31 @@ Given a list of somatic mutations (VCF file), MuPeXI returns a table containing 
 
 
 
+## pTuneos
 
+[pTuneos: prioritizing tumor neoantigens from next-generation sequencing data](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6822339/)
+
+[https://github.com/bm2-lab/pTuneos](https://github.com/bm2-lab/pTuneos)
+
+Not the best code. However can use at least parts of it. The paper worth reading.
+
+pTuneos uses machine learning to first filter neoantigens using 5 features:
+	* MHC-I binding affinity for tumor (NetMHCpan)
+	* MHC-I binding affinity for normal (NetMHCpan)
+	* Self-sequence similarity between normal and mutant peptides
+	* Peptide hydrophobicity score of amino acids at T cell receptor (a strong hallmark of CD8+ T cell-mediated immunity)
+	* T cell recognition probability of the peptide-MHC complex (probability that a neoantigen will be recognized by the TCR repertoire, by alignment with a set of peptides retrieved from IEDB)
+
+Then neoantigens are prioritized using a more refined score, calculated using additional features on top of the above:
+    * allele freq of mutate gene corresponding to the neotpitope
+    * expression
+    * clonality ("Cellular prevalence" = percentage of tumor cells containing the identified neoantigen, as output by /PyClone/)
+    * combined score of binding affinity, proteasomal C terminal cleavage, and TAP transport efficiency, as output by/NetCTLpan/
+
+Overall, there are 3 groups of features:
+	* Abundance (expression, AF, combined binding affinity+cleavage+transport efficiency, clonality)
+	* Peptide dissimilarity (Negative selection against cross-reacting T cells - MHC binding affinity)
+	* T cell recognition prob
 
 
 
