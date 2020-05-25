@@ -99,6 +99,14 @@ HLA typing is needed to identify which HLA genes we need to check binding againt
 
 Refer to [install_readme.sh](install_readme.sh) for instructions.
 
+Load with
+
+```
+export ENSEMBL_VERSION=95
+export PIZZLY_REF_FA=/g/data/gx8/projects/Saveliev_APGI/LTS/RNA/local_rnaseq/work/pizzly/hg38-noversions.fa
+export PATH=/g/data3/gx8/extras/vlad/miniconda/envs/nag/bin:$PATH
+```
+
 ## Usage
 
 ```
