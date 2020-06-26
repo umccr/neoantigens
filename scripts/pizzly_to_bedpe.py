@@ -16,7 +16,6 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Data import CodonTable
 from memoized_property import memoized_property
-from reference_data import api as refdata
 
 
 """
@@ -88,8 +87,10 @@ ENSEMBL_RELEASE=95
 @click.option('-s', '--min-read-support', help='Minimal read support to keep an event', default=5)
 @click.option('-e', '--ensembl-release', default=ENSEMBL_RELEASE, help='Set to 75 for GRCh37')
 @click.option('-p', '--peptide-flanking-len', type=int,
-              help='Reported only a part of fusion peptide around the breakpoint. Take `p` number of aminoacids '
-                   'from each side of the fusion. Plus the junction peptide (the resulting peptide length will be `p`*2+1).')
+              help='Reported only a part of fusion peptide around the breakpoint. '
+                   'Takes `p` number of aminoacids from each side of the fusion, '
+                   'plus the middle peptide (the resulting peptide length will be `p`*2+1). '
+                   'Set to -1 to report full transcripts', default=14)
 @click.option('-d', '--debug', is_flag=True)
 @click.option('--no-filtering', 'no_filtering', is_flag=True)
 @click.option('--transcript-check/--no-transcript-check', 'check_transcript', is_flag=True, default=True)
@@ -148,12 +149,15 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
 
             if check_transcript:
                 if not _transcript_is_good(fusion.side_5p.trx) or not _transcript_is_good(fusion.side_3p.trx):
-                    logger.info(f'Transcripts {fusion.side_5p.trx} and {fusion.side_3p.trx} didn\'t pass check')
+                    # logger.info(f'Transcripts {fusion.side_5p.trx} and {fusion.side_3p.trx} didn\'t pass check')
                     continue
 
-            if no_filtering is not True and fusion.support < min_read_support: continue
+            if no_filtering is not True and fusion.support < min_read_support:
+                continue
 
-            if not fusion.calc_genomic_positions(): continue
+            calc_positions_ok = fusion.calc_genomic_positions()
+            if not calc_positions_ok:
+                continue
 
             # comparing our fasta to pizzly fasta
             fusion.fasta_rec = fasta_dict[t_event['fasta_record']]
@@ -168,15 +172,14 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
         # if not met_fasta_keys:
         #     logger.info('   Filtered all fusions for this gene pair.')
         if met_fasta_keys:
-            logger.info(f'Keeping {len(met_fasta_keys)} fusion(s)')
+            logger.info(f'Keeping {len(met_fasta_keys)} fusion(s) for the event {gene_a}-{gene_b}')
 
     if not fusions:
         logger.warn('Finished: no fusions passed filtering')
-        sys.exit(0)
 
     # Calculate expression of fused transcripts
     expr_by_fusion = None
-    if reads:
+    if reads and fusions:
         # filtered fasta for re-calling expression
         work_dir = safe_mkdir(splitext(output_bedpe)[0] + '_quant')
         fasta_path = join(work_dir, 'fusions.fasta')
@@ -194,6 +197,8 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
     met_peptide_keys = set()  # collecting to get rid of duplicate peptides
     bedpe_entries = []
     peptide_fusions = []
+    if peptide_flanking_len < 0:
+        peptide_flanking_len = None
     for fusion in fusions:
         if fusion.side_3p.trx.contains_start_codon:
             logger.info(f'Translating {fusion.side_5p.trx.gene.name}>>{fusion.side_3p.trx.gene.name} fusion: {fusion}')
@@ -203,7 +208,9 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
 
             # skipping duplicate peptides
             k = fusion.side_5p.trx.gene.name, fusion.side_3p.trx.gene.name, fusion.peptide
-            if k in met_peptide_keys: continue
+            if k in met_peptide_keys:
+                logger.debug(f'Skipping peptide {k}: already added')
+                continue
             met_peptide_keys.add(k)
 
         # writing bedpe
@@ -212,7 +219,10 @@ def main(prefix, output_bedpe, output_fasta=None, output_json=None, min_read_sup
         # add expression
         if expr_by_fusion:
             entry.update(expr_by_fusion[fusion.fasta_rec.id])
-            if no_filtering is not True and float(entry['tpm']) < min_tpm: continue
+            tpm = float(entry['tpm'])
+            if no_filtering is not True and tpm < min_tpm:
+                logger.debug(f'Skipping peptide {entry}: TPM={tpm} is below {min_tpm}')
+                continue
 
         if fusion.peptide:
             peptide_fusions.append(fusion)
@@ -333,11 +343,16 @@ class FusionSide:
     def calc_genomic_bp_pos(self):
         genomic_coord, is_in_intron = FusionSide.offset_to_genome_coord(self.trx, self.bp_offset)
         if genomic_coord is None:
-            logger.critical(f'  Error: could not convert transcript {id} offest {genomic_coord} to genomic coordinate')
+            logger.critical(
+                f'  Error: could not convert transcript {id} '
+                f'offset {genomic_coord} to genomic coordinate')
             return False
 
         if genomic_coord == -1:
-            logger.warn(f'  Fusion in {self} takes the whole transcript {self.trx.id}. That\'s suspicious, so we are skipping it.')
+            logger.debug(
+                f'  Fusion in takes the entire transcript {self.trx.id} '
+                f'(genomic_coord={genomic_coord}, bp_offset={self.bp_offset}). '
+                f'That\'s suspicious, so we are skipping it.')
             return False
 
         self.bp_genomic_pos = genomic_coord
@@ -490,7 +505,8 @@ class Fusion:
             return
         cds_seq_5p = Seq(self.side_5p.trx.sequence[transl_start:self.side_5p.bp_offset])
         fs_5p = len(cds_seq_5p) % 3
-        if fs_5p != 0: logger.debug(f'  Frameshift of 5p sequence: {fs_5p}')
+        if fs_5p != 0:
+            logger.debug(f'  Frameshift of 5p sequence: {fs_5p}')
 
         pep_5p = _translate_from_start_codon(cds_seq_5p, to_stop=False, name='5\' fasta')
         if '*' in pep_5p:
@@ -501,7 +517,8 @@ class Fusion:
 
         # 3' fasta. Getting full sequence in case if it's an FS event that will produce a novel stop codon
         fs_3p = (self.side_3p.bp_offset - self.side_3p.trx.first_start_codon_spliced_offset) % 3
-        if fs_3p != 0: logger.debug(f'  Frameshift of 3p sequence: {fs_3p}')
+        if fs_3p != 0:
+            logger.debug(f'  Frameshift of 3p sequence: {fs_3p}')
         seq_3p = Seq(self.side_3p.trx.sequence[self.side_3p.bp_offset:])
 
         # checking if the fusion produced a frameshift
@@ -537,7 +554,8 @@ class Fusion:
                      f'{pep_5p if len(pep_5p) < 99 else pep_5p[:48] + "..." + pep_5p[-48:]}')
         if junction_pep:
             logger.debug(f'  Junction peptide: {junction_pep}')
-        logger.debug(f'  3\' peptide{f" (shifted by {fusion_fs} from original)" if fusion_fs else ""} (len={len(pep_3p)}): '
+        logger.debug(f'  3\' peptide{f" (shifted by {fusion_fs} from original)" if fusion_fs else ""} '
+                     f'(len={len(pep_3p)}): '
                      f'{pep_3p if len(pep_3p) < 99 else pep_3p[:48] + "..." + pep_3p[-48:]}')
 
         # fusion peptide
@@ -608,6 +626,7 @@ def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
     bp_offset = fusion.side_5p.bp_offset - start_codon_offset
     logger.debug(f'bp_offset from start codon: {bp_offset}')
     if bp_offset <= 0:
+        logger.debug(f'bp_offset from start codon is not positive: {bp_offset}')
         return
 
     pep = _translate_from_start_codon(pizzly_seq, to_stop=True, name='Pizzly fasta')
@@ -615,12 +634,14 @@ def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
 
     fus_pos = bp_offset // 3
     if len(pep) < fus_pos:
+        logger.debug(f'length of the peptide is less then the fusion position: {len(pep)}<{fus_pos}')
         return
 
     fs_5p = bp_offset % 3
     fs_3p = (fusion.side_3p.bp_offset - fusion.side_3p.trx.first_start_codon_spliced_offset) % 3
     fusion_fs = (fs_5p + fs_3p) % 3
-    if fusion_fs != 0: logger.debug(f"  Result fusion frameshift:  {fusion_fs}")
+    if fusion_fs != 0:
+        logger.debug(f"  Result fusion frameshift:  {fusion_fs}")
     is_inframe = fusion_fs == 0
     assert is_inframe == fusion.is_inframe, (is_inframe, fusion.is_inframe)
 
@@ -635,7 +656,7 @@ def _verify_peptides(pizzly_fasta_rec, fusion, peptide_flanking_len=None):
         logger.debug(f'fusion position in trimmed peptide: {fus_pos}')
 
     assert fus_pos == fusion.fusion_offset_in_peptide, (fus_pos, fusion.fusion_offset_in_peptide)
-    assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
+    # assert fusion.peptide == pep, (fusion.peptide, pep, fusion)
 
 
 def requanitify_pizzly(pizzly_ref_fa, fusions_fasta, work_dir, fastq):
