@@ -7,6 +7,11 @@ from ngs_utils.bcbio import BcbioProject
 from ngs_utils.logger import critical, info, debug, warn, err
 from ngs_utils.file_utils import verify_file
 from reference_data import api as refdata
+from nag import balachandran
+
+shell.executable(os.environ.get('SHELL', 'bash'))
+shell.prefix("")
+
 
 if config.get('genomes_dir'):
     refdata.find_genomes_dir(config.get('genomes_dir'))
@@ -420,15 +425,66 @@ rule run_pvacfuse:
                 if not isfile(of):
                     shell(f'touch {of}')
 
-    rule pvacseq_extra_input:
-        input:  transcript_expn_file        = join(work_dir, 'transcript_expn_file') if RNA_SNAME else [],
-                trna_snvs_coverage_file     = join(work_dir, 'trna_snvs_coverage_file') if RNA_SNAME else [],
-                trna_indels_coverage_file   = join(work_dir, 'trna_indels_coverage_file')if RNA_SNAME else [],
-        output:                               join(work_dir, 'pvacseq_extra_input_file_list.yaml')
-        run:
-            with open(output[0], 'w') as out_fh:
-                for fpath in input:
-                    name = basename(fpath)
-                    out_fh.write(f'{name}: {abspath(fpath)}\n')
+
+rule balachandran_epitopes_to_fasta:
+    input:
+        pvac_outputs = expand('pvac{SOURCE}_results/MHC_Class_{CLS}/' + SNAME + '.filtered.condensed.ranked.tsv',
+                              CLS=['I', 'II'], SOURCE=['seq', 'fuse']),
+    output:
+        fasta = join(work_dir, 'quality', 'alignments', f'neoantigens_{SNAME}.fasta'),
+        list  = join(work_dir, 'quality', 'neoantigens.tsv'),
+    params:
+        sname = SNAME
+    run:
+        import pandas as pd
+        epitopes = []
+        for pvac_fpath in input.pvac_outputs:
+            try:
+                data = pd.read_csv(pvac_fpath, sep='\t')
+            except:
+                pass
+            else:
+                epitopes.extend(zip(data['MT Epitope Seq'], data['Median WT Score'], data['Median MT Score']))
+        with open(output.fasta, 'w') as fasta_out, open(output.list, 'w') as list_out:
+            list_out.write('\t'.join(
+                ['id', 'sample', '.', '.', '.', '.', 'epitope', '.', '.', 'wt_score', 'mt_score']) + '\n')
+            for i, (epitope, wt_score, mt_score) in enumerate(epitopes):
+                fasta_out.write(f'>M_{i}\n{epitope}\n')
+                list_out.write('\t'.join(
+                    [str(i), params.sname, '.', '.', '.', '.', epitope, '.', '.', str(wt_score), str(mt_score)]) + '\n')
+
+
+rule balachandran_blast_epitopes:
+    input:
+        fasta = rules.balachandran_epitopes_to_fasta.output.fasta,
+        iedb_fasta = join(balachandran.package_path(), 'data', 'iedb.fasta'),
+    output:
+        xml = join(work_dir, 'quality', 'alignments', f'neoantigens_{SNAME}_iedb.xml')
+    shell:
+        'blastp -query {input.fasta} ' 
+        '-db {input.iedb_fasta} '
+        '-outfmt 5 -evalue 100000000 -gapopen 11 -gapextend 1 ' 
+        '> {output.xml}'
+
+
+rule balachandran_epitopes_quality:
+    input:
+        alignments = rules.balachandran_blast_epitopes.output.xml,
+        script = join(balachandran.package_path(), 'main.py'),
+        list = rules.balachandran_epitopes_to_fasta.output.list,
+    output:
+        txt = join(work_dir, 'quality', 'neontigen_quality.txt')
+    params:
+        fitness_model_param_a = '26.',
+        fitness_model_param_k = '1.',
+        alignments_dir = lambda wc, input, output: dirname(input.alignments),
+    shell:
+        'python {input.script} {input.list} {params.alignments_dir} '
+        '{params.fitness_model_param_a} {params.fitness_model_param_k} '
+        '> {output.txt}'
+
+
+
+
 
 

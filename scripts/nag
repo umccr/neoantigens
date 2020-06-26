@@ -167,9 +167,9 @@ def main(somatic_vcf, sample, rna_bcbio=None, rna_sample=None, hla_file=None,
 
 
 def _pvac_seq_tsv_stats(fpath):
+    muts = set()
     total_lines = 0
     epitopes = set()
-    muts = set()
     genes = set()
     hlas = set()
 
@@ -202,9 +202,9 @@ def _pvac_seq_tsv_stats(fpath):
 
 
 def _report(fpath, kind, final_link_path):
-    if not verify_file(fpath, silent=True):
-        logger.info(f'{kind}: no neoantigens called.')
-        return
+    # if not verify_file(fpath, silent=True):
+    #     logger.info(f'{kind}: no neoantigens called.')
+    #     return
 
     if os.path.islink(final_link_path):
         os.unlink(final_link_path)
