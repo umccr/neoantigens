@@ -1,13 +1,16 @@
 # Don't source it. Follow carefully.
 
-ENSEMBL_VERSION=95
-ENSEMBL_DIR=/Users/vsaveliev/bio/genomes   #/g/data3/gx8/extras/ensembl
-VEP_DATA=/Users/vsaveliev/bio/genomes/pcgr/data/grch38/.vep/homo_sapiens/98_GRCh38/ # /g/data3/gx8/extras/umccrise_2019_Aug/genomes/pcgr/data/grch38/.vep
-ENV_LOCATION=/g/data3/gx8/extras/vlad/miniconda/envs/nag
+#VEP_DATA=/Users/vsaveliev/bio/genomes/pcgr/data/grch38/.vep/homo_sapiens/98_GRCh38/ # /g/data3/gx8/extras/umccrise_2019_Aug/genomes/pcgr/data/grch38/.vep
+VEP_DATA=/g/data3/gx8/extras/umccrise/genomes/hg38/pcgr/data/grch38/.vep
+CONDA_BASE=/g/data3/gx8/extras/vlad/miniconda/envs
+
+#PYENSEMBL_DIR=/Users/vsaveliev/bio/genomes
+PYENSEMBL_CACHE_DIR=/g/data3/gx8/extras/umccrise/genomes/hg38
+PIZZLY_ENSEMBL_VERSION=95
 
 # Enviornment
-conda env create -n $ENV_LOCATION --file environment.yml
-export PATH=$ENV_LOCATION/bin:$PATH
+mamba env create -p $CONDA_BASE/nag --file environment.yml
+export PATH=$CONDA_BASE/nag/bin:$PATH
 pip install -e .
 
 ########################
@@ -17,35 +20,35 @@ pip install -e .
 #    vep_install -a cf -s homo_sapiens -y GRCh38 --DESTDIR ${VEP_DATA} --CACHEDIR ${VEP_DATA}/GRCh38
 #    vep_install --AUTO p --NO_HTSLIB --NO_UPDATE --PLUGINS Downstream
 #fi
+## Or, if using PCGR VEP installation, install the Downstream plugin separately:
+git clone https://github.com/Ensembl/VEP_plugins.git
+mkdir ${VEP_DATA}/Plugins
+cp VEP_plugins/Downstream.pm ${VEP_DATA}/Plugins
 
 ########################
 ### Install pVACtools
-pip install pvactools
+mamba env create -p $CONDA_BASE/pvac pvacseq
+export PATH=$CONDA_BASE/pvac/bin:$PATH
 # override the codebase from our fork:
 git clone https://github.com/vladsaveliev/pVACtools
-pip install pVACtools
-mkdir ${VEP_DATA}/Plugins
+pip install -e pVACtools
 pvacseq install_vep_plugin ${VEP_DATA}/Plugins
-
 
 ########################
 ### Download local IEDB
-IEDB_DIR=/Users/vsaveliev/rjn/extras/iedb #/g/data3/gx8/extras/iedb
+#IEDB_DIR=/Users/vsaveliev/rjn/extras/iedb
+IEDB_DIR=/g/data3/gx8/extras/iedb
 if [ ! -d $IEDB_DIR ] ; then
     cd $IEDB_DIR
-    # Download from [http://tools.iedb.org/mhcii/download](http://tools.iedb.org/mhcii/download/):
-    # - click `MHC Class I`
-    # - click `To download the tools in tar.gz format: Agree and Download`
-    # - do the the same for `MHC Class II`.
-    # - Uncompressing and install:
-    tar -zxvf IEDB_MHC_I-2.19.1.tar.gz
+    wget https://downloads.iedb.org/tools/mhci/2.22.3/IEDB_MHC_I-2.22.3.tar.gz
+    wget https://downloads.iedb.org/tools/mhcii/2.22.3/IEDB_MHC_II-2.22.3.tar.gz
+    tar -zxvf IEDB_MHC_I-*.tar.gz
     # need python2 to run configure:
-    conda create -n py2 python=2.7
-    conda activate py2
+    conda create -p $CONDA_BASE/py2 python=2.7
+    export PATH=$CONDA_BASE/py2/bin:$PATH
     PY2=$(which python2.7)
     #cd ~/bin
     #ln -s /g/data3/gx8/extras/vlad/miniconda/envs/py2/bin/python2.7
-    cd -
     cd mhc_i
     ./configure
 
@@ -54,31 +57,26 @@ if [ ! -d $IEDB_DIR ] ; then
     sed -i 's|/usr/bin/env python|/usr/bin/env python2.7|' method/netmhccons-1.1-executable/netmhccons_1_1_executable/bin/pseudofind
     sed -i 's|/usr/bin/env python|/usr/bin/env python2.7|' method/netmhc-3.4-executable/netmhc_3_4_executable/netMHC
 
+    cd -
     tar -xzvf IEDB_MHC_II-2.17.5.tar.gz
     cd mhc_ii
-    ./configure.py
-
-    conda activate nag
+    python configure.py
 fi
 
 
 ########################
 ### pyensembl (to convert pizzly to bedpe)
 pip install "gtfparse>=1.1" "pyensembl>=1.7.2"
-export PYENSEMBL_CACHE_DIR=${ENSEMBL_DIR}
 if [ ! -d ${PYENSEMBL_CACHE_DIR}/pyensembl ] ; then
     # In 2 steps: first on loging node to make it download the files:
-    pyensembl install --release ${ENSEMBL_VERSION} --species human
+    pyensembl install --release ${PIZZLY_ENSEMBL_VERSION} --species human
     # when it starts `Reading GTF from`, go into a worker node and run again.
 fi
 
 ########################
 ### bam-readcount (for pvacseq coverage of rnaseq)
 # bam-readcount cannot install into the same conda env, thus we are creating a separate one:
-conda create -n bam-readcount -c bioconda -c conda-forge bam-readcount
-conda activate bam-readcount
-BAM_READCOUNT=$(which bam-readcount)
-conda activate nag
-cp $BAM_READCOUNT $CONDA_PREFIX/bin
+conda create -p $CONDA_BASE/bam-readcount -c bioconda -c conda-forge bam-readcount
+cp $CONDA_BASE/bam-readcount/bin/bam-readcount $CONDA_BASE/nag/bin
 
 
