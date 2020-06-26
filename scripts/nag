@@ -19,16 +19,16 @@ from nag import package_path
 
 
 @click.command()
-@click.argument('dna_bcbio', type=click.Path())
-@click.argument('dna_sample')
+@click.option('-v', '--somatic-vcf', 'somatic_vcf', type=click.Path())
+@click.option('-s', '--sample', 'sample')
+@click.option('-R', '--rna-bcbio', 'rna_bcbio', type=click.Path())
+@click.option('-r', '--rna-sample', 'rna_sample')
+@click.option('-H', '--hla-file', 'hla_file')
 @click.option('-T', '--target', 'include_stages', multiple=True,
               help='Optionally, specific stage to run')
 @click.option('-E', '--skip-target', 'exclude_stages', multiple=True,
               help='Optionally, stages to skip, e.g.: -E oncoviruses -E cpsr')
-@click.option('-s', '--sample', 'sample')
 @click.option('-o', 'output_dir', type=click.Path(), help='Output directory (default is "umccrise")')
-@click.option('-R', '--rna-bcbio', 'rna_bcbio', type=click.Path())
-@click.option('-r', '--rna-sample', 'rna_sample')
 @click.option('--ensembl-release', 'ensembl_release')
 @click.option('--pizzly-ref-fa', 'pizzly_ref_fa', type=click.Path(), help='Pizzly transcriptome fasta reference for requantification,'
               'e.g. /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/local_rnaseq/work/pizzly/hg38-noversions.fa')
@@ -43,8 +43,8 @@ from nag import package_path
 @click.option('--restart-times', 'restart_times', default=0, help='Propagaded to snakemake.')
 @click.option('--genomes', '--genomes-dir', 'input_genomes_url', help='Path to the reference data. Can be s3 or gds')
 
-def main(dna_bcbio, dna_sample, include_stages:list = None, exclude_stages:list = None,
-         sample=None, output_dir=None, rna_bcbio=None, rna_sample=None,
+def main(somatic_vcf, sample, rna_bcbio=None, rna_sample=None, hla_file=None,
+         include_stages:list = None, exclude_stages:list = None, output_dir=None,
          ensembl_release=None, pizzly_ref_fa=None, min_tvaf=None, jobs=None, cluster=False, unlock=False,
          restart_times=None, input_genomes_url=None):
     output_dir = output_dir or 'neoantigens'
@@ -58,8 +58,10 @@ def main(dna_bcbio, dna_sample, include_stages:list = None, exclude_stages:list 
     genomes_dir = refdata.find_genomes_dir(input_genomes_url)
     conf['genomes_dir'] = genomes_dir
 
-    conf['dna_bcbio'] = verify_dir(dna_bcbio, is_critical=True)
-    conf['dna_sample'] = dna_sample
+    # conf['dna_bcbio'] = verify_dir(dna_bcbio, is_critical=True)
+    conf['sample'] = sample
+    conf['somatic_vcf'] = somatic_vcf
+    conf['hla_file'] = hla_file
 
     if rna_sample and rna_bcbio:
         conf['rna_sample'] = rna_sample
@@ -68,9 +70,6 @@ def main(dna_bcbio, dna_sample, include_stages:list = None, exclude_stages:list 
         if 'pvacfuse' in include_stages:
             logger.critical('Cannot run pVACfuse without RNA data')
         target_rule = ['pvacseq']
-
-    if sample:
-        conf['sample'] = sample
 
     if ensembl_release:
         conf['ensembl_release'] = ensembl_release
