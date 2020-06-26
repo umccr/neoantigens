@@ -47,7 +47,19 @@ PIZZLY_REF_FA          = config.get('pizzly_ref_fa')
 
 # pVACtools parameters
 EPITOPE_LENGTHS = '9'  #'8,9,10,11'
-PREDICTORS = 'NetMHCcons NetMHCIIpan NNalign SMM SMMPMBEC SMMalign'  # NetMHCcons is ensemble of NetMHC,NetMHCpan,PickPocket
+PREDICTORS_MHCI = [
+    'NetMHCcons',  # NetMHCcons is ensemble of NetMHC,NetMHCpan,PickPocket
+    'MHCflurry',
+    'MHCnuggetsI',
+    'SMM',
+    'SMMPMBEC',
+]
+PREDICTORS_MHCII = [
+    'NetMHCIIpan',
+    'MHCnuggetsII',
+    'NNalign',
+    'SMMalign'
+]
 
 # pVACfuse parameters
 PEP_5_PRIME_FLANK = 14  # Aminoacids to pick from both sides of the fusion junction peptide.
@@ -65,22 +77,35 @@ EXCLUDE_NA = False
 
 
 rule all:
-    input:   expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
-             expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
+    input:   expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
+             expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
 
 rule pvacseq:
-    input:   expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
+    input:   expand('pvacseq_results/MHC_Class_{CLS}/' + SNAME + '.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
 
 rule pvacfuse:
-    input:   expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.final.tsv', CLS=['I', 'II']),
+    input:   expand('pvacfuse_results/MHC_Class_{CLS}/' + SNAME + '.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
 
 
-def _pvac_cmdl(tool, input, sample, hla_types, output_dir, other_params=''):
-    cmd = (f'{tool} run {input} {sample} "$(cat {hla_types})" {PREDICTORS} {output_dir} '
-           f'-e {EPITOPE_LENGTHS} --top-score-metric=lowest -t '
-           f'--iedb-install-directory {IEDB_DIR} --keep-tmp-files {other_params} ')
+def _pvac_cmdl(tool, input, sample, hla_types, output_dir, threads, other_params=''):
+    cmd = (
+        f'{tool} run '
+        f'{input} '
+        f'{sample} '
+        f'"$(cat {hla_types})" '
+        f'{" ".join(PREDICTORS_MHCI + PREDICTORS_MHCII)} '
+        f'{output_dir} '
+        f'-e {EPITOPE_LENGTHS} '
+        f'--top-score-metric=lowest '
+        # f'-t {threads} '
+        f'--iedb-install-directory {IEDB_DIR} '
+        f'--keep-tmp-files '
+        f'{other_params} '
+    )
     if USE_REMOTE_DB:
-        cmd += f' --net-chop-method cterm --netmhc-stab'
+        cmd += \
+            f' --net-chop-method cterm ' \
+            f'--netmhc-stab'
     if EXCLUDE_NA:
         cmd += f' --exclude-NAs'
     return cmd
@@ -116,10 +141,10 @@ rule prep_hla:
 # t_vcf = verify_file(join(dna_run.date_dir, f'{batch.name}-ensemble-annotated.vcf.gz'))
 t_vcf = SOMATIC_VCF
 
-rule vcf_set_af_dp:
-    input:   t_vcf
-    output:  join(work_dir, 'somatic.AFDP.vcf')
-    shell:  'pcgr_prep {input} | bcftools view -f.,PASS -Oz -o {output} && tabix -p vcf {output}'
+# rule vcf_set_af_dp:
+#     input:   t_vcf
+#     output:  join(work_dir, 'somatic.AFDP.vcf')
+#     shell:  'pcgr_prep {input} | bcftools view -f.,PASS -Oz -o {output} && tabix -p vcf {output}'
 
 rule vcf_af_filter:  # {batch}
     input:  SOMATIC_VCF

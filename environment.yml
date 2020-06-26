@@ -33,3 +33,5 @@ dependencies:
     - "git+https://github.com/vladsaveliev/vcf_stuff#egg=vcf_stuff"
     - "git+https://github.com/umccr/reference_data#egg=reference_data"
     - "git+https://github.com/vladsaveliev/snakemake#egg=snakemake"
+    - pvactools
+    - vatools

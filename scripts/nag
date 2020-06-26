@@ -149,11 +149,11 @@ def main(somatic_vcf, sample, rna_bcbio=None, rna_sample=None, hla_file=None,
         logger.info(f'-' * 60)
         logger.info()
 
-        sample = sample or dna_sample
-        mut_calls_mhc1 = join(output_dir, f'pvacseq_results/MHC_Class_I/{sample}.final.tsv')
-        mut_calls_mhc2 = join(output_dir, f'pvacseq_results/MHC_Class_II/{sample}.final.tsv')
-        fus_calls_mhc1 = join(output_dir, f'pvacfuse_results/MHC_Class_I/{sample}.final.tsv')
-        fus_calls_mhc2 = join(output_dir, f'pvacfuse_results/MHC_Class_II/{sample}.final.tsv')
+        sample = sample
+        mut_calls_mhc1 = join(output_dir, f'pvacseq_results/MHC_Class_I/{sample}.filtered.condensed.ranked.tsv')
+        mut_calls_mhc2 = join(output_dir, f'pvacseq_results/MHC_Class_II/{sample}.filtered.condensed.ranked.tsv')
+        fus_calls_mhc1 = join(output_dir, f'pvacfuse_results/MHC_Class_I/{sample}.filtered.condensed.ranked.tsv')
+        fus_calls_mhc2 = join(output_dir, f'pvacfuse_results/MHC_Class_II/{sample}.filtered.condensed.ranked.tsv')
 
         if not include_stages or 'pvacseq' in include_stages or 'all' in include_stages:
             _report(mut_calls_mhc1, 'SNPs and indels, MHC Class I',  join(output_dir, 'snps_and_indels_mhcI.tsv'))
@@ -174,14 +174,29 @@ def _pvac_seq_tsv_stats(fpath):
     hlas = set()
 
     with open(fpath) as fh:
-        fieldnames = next(fh).strip().split('\t')
-        csv_reader = csv.DictReader(fh, delimiter='\t', fieldnames=fieldnames)
-        for entry in csv_reader:
-            total_lines += 1
-            muts.add((entry['Chromosome'], entry['Start'], entry['Stop']))
-            epitopes.add(entry['MT Epitope Seq'])
-            genes.add(entry['Gene Name'])
-            hlas.add(entry['HLA Allele'])
+        try:
+            fieldnames = next(fh).strip().split('\t')
+        except:  # empty file = no neoantigens called
+            pass
+        else:
+            csv_reader = csv.DictReader(fh, delimiter='\t', fieldnames=fieldnames)
+            for entry in csv_reader:
+                total_lines += 1
+                epitopes.add(entry['MT Epitope Seq'])
+                genes.add(entry['Gene Name'])
+                hlas.add(entry['HLA Allele'])
+
+    pre_ranked_fpath = fpath.replace('.filtered.condensed.ranked.tsv', '.filtered.tsv')
+    if isfile(pre_ranked_fpath):
+        with open(pre_ranked_fpath) as fh:
+            try:
+                fieldnames = next(fh).strip().split('\t')
+            except:  # empty file = no neoantigens called
+                pass
+            else:
+                csv_reader = csv.DictReader(fh, delimiter='\t', fieldnames=fieldnames)
+                for entry in csv_reader:
+                    muts.add((entry['Chromosome'], entry['Start'], entry['Stop']))
 
     return total_lines, len(epitopes), len(muts), len(genes), len(hlas)
 
@@ -195,16 +210,11 @@ def _report(fpath, kind, final_link_path):
         os.unlink(final_link_path)
     os.symlink(relpath(fpath, dirname(final_link_path)), final_link_path)
 
-    unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.binding.tsv')
-    if not isfile(unfiltered_fpath):
-        unfiltered_fpath = fpath.replace('.final.tsv', '.filtered.coverage.tsv')
-
-    lines,   epitopes,   muts,   genes,   hlas   = _pvac_seq_tsv_stats(fpath)
-    u_lines, u_epitopes, u_muts, u_genes, u_hlas = _pvac_seq_tsv_stats(unfiltered_fpath)
+    lines, epitopes, muts, genes, hlas = _pvac_seq_tsv_stats(fpath)
 
     logger.info(f'{kind}:')
-    logger.info(f'  - {epitopes} ({u_epitopes} unfiltered) epitopes from {muts} ({u_muts}) variants in '
-                f'{genes} ({u_genes}) genes in context of {hlas} ({u_hlas}) HLA alleles.')
+    logger.info(f'  - {epitopes} epitopes from {muts} variants in '
+                f'{genes} genes in context of {hlas} HLA alleles.')
     logger.info(f'  - file: {fpath}')
 
 
