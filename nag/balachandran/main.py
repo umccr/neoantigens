@@ -1,69 +1,69 @@
-'''
-Created on Jul 27, 2017
-
-@author: Marta Luksza, mluksza@ias.edu
-'''
+#!/usr/bin/env python
+import csv
+import math
+from os.path import join
+import click
+import pandas as pd
 from Aligner import Aligner
-import sys
 
-def main():        
-    '''
-    command line parameters:
-    neofile - text file with neoantigen data (supplementary data)
-    alignmentDirectory - folder with precomputed alignments (SI)
-    a - midpoint parameter of the logistic function, alignment score threshold
-    k - slope parameter of the logistic function
-    '''
-    neofile=sys.argv[1]
-    alignmentDirectory=sys.argv[2]
-    
-    a=float(sys.argv[3])
-    k=float(sys.argv[4])
-    
-    #Compute MHC amplitudes for all neoantigens
-    f=open(neofile)
-    lines=f.readlines()
-    Ai={}
-    data={}
-    samples=set()
-    for line in lines[1:]:
-        [i,sample,_,_,_,_,mtpeptide,_,_,kdwt,kdmt]=line.strip().split()
-        i=int(i)
-        data[i]=mtpeptide.upper()
-        Ai[i]=float(kdwt)/float(kdmt)
-        samples.add(sample)
-    f.close()
 
-    #Compute TCR-recognition probabilities for all neoantigens
-    aligner=Aligner()    
-    for sample in samples:
-        xmlpath=alignmentDirectory+"/neoantigens_"+sample+"_iedb.xml"
-        aligner.readAllBlastAlignments(xmlpath)    
-    aligner.computeR(a, k)    
+@click.command()
+@click.option('-l', '--list', 'epitope_list', help='Epitope list (columns: )')
+@click.option('-a', '--alignments', 'alignments_dir', help='Folder with precomputed blast alignments')
+@click.option('-A', '--alignment-score-threshold', 'alignment_score_threshold', type=click.FLOAT,
+              default=26.0, help='Midpoint parameter of the logistic function, alignment score threshold')
+@click.option('-K', '--slope-parameter', 'slope_parameter', type=click.FLOAT,
+              default=1.0, help='Slope parameter of the logistic function')
+@click.option('-o', '--output-file', 'output_file', help='Output file')
 
-    #Compute neoantigen quality
-    nids=list(Ai.keys())
-    nids.sort()
-    header=["NeoantigenID","MT.Peptide.Form","NeoantigenQuality",
-            "NeoantigenAlignment","IEDB_EpitopeAlignment","AlignmentScore","IEDB_Epitope"]
-    header="\t".join(header)
-    print(header)
-    for i in nids:
-        A=Ai[i]
-        [R,species,alignment]=aligner.getR(i)
-        
-        neoAlignment=alignment[0]
-        epitopeAlignment=alignment[1]
-        score=alignment[2]
-        
-        l=[i, data[i], A*R, neoAlignment, epitopeAlignment, score, species]
-        l="\t".join(map(lambda s: str(s),l))
-        print(l)
+def main(epitope_list=None, alignments_dir=None, alignment_score_threshold=None, slope_parameter=None,
+         output_file=None):
+
+    # Compute MHC amplitudes for all neoantigens
+    a_val_by_index = {}
+    peptide_by_index = {}
+    sample_by_index = {}
+
+    with open(epitope_list) as f:
+        for data in csv.DictReader(f, delimiter='\t'):
+            index = data['id']
+            sample = data['sample']
+            mtpeptide = data['epitope']
+            kdwt = data['wt_score']
+            kdmt = data['mt_score']
+            kdmt = float(kdmt)
+            if kdwt == 'nan':
+                kdwt = 1000.
+            kdwt = float(kdwt)
+            index = int(index)
+            peptide_by_index[index] = mtpeptide.upper()
+            a_val_by_index[index] = kdwt / kdmt
+            sample_by_index[index] = sample
+
+    # Compute TCR-recognition probabilities for all neoantigens
+    aligner = Aligner()
+    for sname in set(sample_by_index.values()):
+        xml_path = join(alignments_dir, f'neoantigens_{sname}_iedb.xml')
+        aligner.read_all_blast_alignments(xml_path)
+    aligner.compute_rval(alignment_score_threshold, slope_parameter)
+
+    # Compute qualities for all epitopes and write the result
+    with open(output_file, 'w') as out:
+        header = ['Sample', 'NeoantigenID', 'MT.Peptide.Form', 'NeoantigenQuality',
+                  'NeoantigenAlignment', 'IEDB_EpitopeAlignment', 'AlignmentScore', 'IEDB_Epitope']
+        out.write('\t'.join(header) + '\n')
+        for index, peptide in peptide_by_index.items():
+            a_val = a_val_by_index[index]
+            [r_val, species, alignment] = aligner.get_rval(index)
+
+            neo_alignment = alignment[0]
+            epitope_alignment = alignment[1]
+            score = alignment[2]
+
+            quality = a_val * r_val
+            res = [sample_by_index[index], index, peptide, quality, neo_alignment, epitope_alignment, score, species]
+            out.write('\t'.join(map(str, res)) + '\n')
+
 
 if __name__ == '__main__':
-    if len(sys.argv)!=5:
-        print("Run as:")
-        print("python src/main.py <Neoantigen_file> <Alignment_directory> <a> <k>")
-    else:
-        main()
-        
+    main()
