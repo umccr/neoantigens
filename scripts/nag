@@ -11,19 +11,25 @@ from ngs_utils.call_process import run_simple
 from ngs_utils.file_utils import verify_file, safe_mkdir, verify_dir
 from ngs_utils import logger
 from ngs_utils.logger import warn, info
+from ngs_utils.snakemake_utils import prep_resources, make_cluster_cmdl, run_snakemake
 from ngs_utils.utils import set_locale; set_locale()
 from ngs_utils import snakemake_utils
 from reference_data import api as refdata
-
 from nag import package_path
 
 
 @click.command()
+@click.option('-i', '--input-tsv', 'input_tsv', type=click.Path(),
+              help='TSV file with inputs. Format: sample<TAB>rna_sample<TAB>rna_bcbio<TAB>somatic_vcf<TAB>optitype_file')
 @click.option('-v', '--somatic-vcf', 'somatic_vcf', type=click.Path())
-@click.option('-s', '--sample', 'sample')
+@click.option('-s', '--sample', 'samples', multiple=True,
+              help='Sample name for the single-sample input, or sample names to include for multi-sample inputs, '
+                   'e.g.: -s SAMPLE1 -s BATCH2')
+@click.option('-e', '--exclude', 'exclude', multiple=True,
+              help='For multi-sample inputs: samples to ignore, e.g.: -e SAMPLE1 -e BATCH2')
 @click.option('-R', '--rna-bcbio', 'rna_bcbio', type=click.Path())
 @click.option('-r', '--rna-sample', 'rna_sample')
-@click.option('-H', '--hla-file', 'hla_file')
+@click.option('-O', '--optitype-file', 'optitype_file')
 @click.option('-T', '--target', 'include_stages', multiple=True,
               help='Optionally, specific stage to run')
 @click.option('-E', '--skip-target', 'exclude_stages', multiple=True,
@@ -35,18 +41,41 @@ from nag import package_path
 @click.option('--min-tvaf',
               help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 10 (%). '
                    'Set if you know sample tumor purity.')
-
-@click.option('-j', '--jobs', 'jobs', default=1,
-              help='Maximum number of cores to use at single time (works both for local and cluster runs)')
-@click.option('-c', '--cluster-auto', 'cluster', is_flag=True, help='Submit jobs to cluster')
-@click.option('--unlock', 'unlock', is_flag=True, help='Propagaded to snakemake')
-@click.option('--restart-times', 'restart_times', default=0, help='Propagaded to snakemake.')
 @click.option('--genomes', '--genomes-dir', 'input_genomes_url', help='Path to the reference data. Can be s3 or gds')
 
-def main(somatic_vcf, sample, rna_bcbio=None, rna_sample=None, hla_file=None,
+# Cluster
+@click.option('-t', '--threads', '-j', '--jobs', '--cores', 'cores', type=click.INT,
+              help='Maximum number of cores to use at single time (works both for local and cluster runs)')
+@click.option('-c', '--cluster-auto', 'cluster', is_flag=True, help='Submit jobs to cluster')
+
+# Debug and snakemake
+@click.option('--debug', 'debug', is_flag=True, help='More verboe messages. Also sets restart times to 0.')
+@click.option('--unlock', 'unlock', is_flag=True,
+              help='Use when you are rerunning after Ctrl+C or an error. Propagated to snakemake.')
+@click.option('-r', '--restarts', '--restart-times', 'restart_times',
+              help=f'How many times to try out rerunning rules if they fail. "--restart-times 1" means that the rule '
+                   f'will be attempted maximum 1 time. Default is {snakemake_utils.DEFAULT_RESTART_TIMES}. The value ropagated '
+                   f'to snakemake is decremented, because snakemake interprets it as "how many times to restart after '
+                   f'the rule is failed").')
+@click.option('-n', '--dryrun', 'dryrun', is_flag=True,
+              help='Propagated to snakemake. Prints rules and commands to be run without actually executing them.')
+@click.option('--report', 'report',
+              help='Propagated to snakemake. Create an HTML report with results and statistics. '
+                   'The argument has to be a file path ending with ".html".')
+@click.option('--dag', 'dag', is_flag=True,
+              help='Propagated to snakemake. Print the DAG of jobs in the dot language. '
+                   'Example usage: umccrise --dag > tmp.txt; cat <cleaned-tmp.txt> | dot -Tsvg > dag.svg')
+@click.option('--resources', 'hpc_resources',
+              help='Can be used to limit the amount of memory allowed to be used, e.g.: --resources mem_mb=1000.'
+                   'Propagated to snakemake.')
+
+def main(input_tsv, somatic_vcf, samples=None, exclude=None, rna_bcbio=None, rna_sample=None, optitype_file=None,
          include_stages:list = None, exclude_stages:list = None, output_dir=None,
-         ensembl_release=None, pizzly_ref_fa=None, min_tvaf=None, jobs=None, cluster=False, unlock=False,
-         restart_times=None, input_genomes_url=None):
+         ensembl_release=None, pizzly_ref_fa=None, min_tvaf=None,
+         input_genomes_url=None,
+         cores=None, cluster=False, debug=False, unlock=False, restart_times=None,
+         dryrun=False, report=None, dag=False, hpc_resources=None):
+
     output_dir = output_dir or 'neoantigens'
     output_dir = safe_mkdir(abspath(output_dir))
     log_dir = safe_mkdir(join(output_dir, 'log'))
@@ -58,18 +87,35 @@ def main(somatic_vcf, sample, rna_bcbio=None, rna_sample=None, hla_file=None,
     genomes_dir = refdata.find_genomes_dir(input_genomes_url)
     conf['genomes_dir'] = genomes_dir
 
-    # conf['dna_bcbio'] = verify_dir(dna_bcbio, is_critical=True)
-    conf['sample'] = sample
-    conf['somatic_vcf'] = somatic_vcf
-    conf['hla_file'] = hla_file
+    num_samples = 0
+    if input_tsv:
+        conf['input_tsv'] = verify_file(input_tsv)
+        if samples:
+            conf['include'] = ','.join(samples)
+        if exclude:
+            conf['exclude'] = ','.join(exclude)
 
-    if rna_sample and rna_bcbio:
-        conf['rna_sample'] = rna_sample
-        conf['rna_bcbio'] = rna_bcbio
+        with open(input_tsv) as f:
+            csv_reader = csv.DictReader(f, delimiter='\t')
+            for e in csv_reader:
+                if samples and e['sample'] not in samples:
+                    continue
+                if exclude and e['sample'] in exclude:
+                    continue
+                num_samples += 1
+
     else:
-        if 'pvacfuse' in include_stages:
-            logger.critical('Cannot run pVACfuse without RNA data')
-        target_rule = ['pvacseq']
+        num_samples = 1
+        conf['sample'] = samples[0]
+        conf['somatic_vcf'] = verify_file(somatic_vcf)
+        conf['optitype_file'] = verify_file(optitype_file)
+        if rna_sample and rna_bcbio:
+            conf['rna_sample'] = rna_sample
+            conf['rna_bcbio'] = rna_bcbio
+        else:
+            if 'pvacfuse' in include_stages:
+                logger.critical('Cannot run pVACfuse without RNA data')
+            include_stages = ['pvacseq']
 
     if ensembl_release:
         conf['ensembl_release'] = ensembl_release
@@ -84,86 +130,71 @@ def main(somatic_vcf, sample, rna_bcbio=None, rna_sample=None, hla_file=None,
     if min_tvaf:
         conf['min_tvaf'] = min_tvaf
 
-    #########################
-    #### Setting cluster ####
-    #########################
-
-    cluster_log_dir = ''
-    cluster_param = ''
-    if cluster:
-        cluster_log_dir = safe_mkdir(join(log_dir, 'cluster'))
-        cluster_param = snakemake_utils.make_cluster_cmdl(cluster_log_dir, 'neoantigens')
-
-    ###############################
-    #### Building command line ####
-    ###############################
-
-    snakefile = join(package_path(), 'Snakefile')
-    cmd = (
-        f'snakemake '
-        f'{" ".join(include_stages)} '
-        f'--snakefile {snakefile} '
-        f'--printshellcmds '
-        f'--directory {output_dir} '
-        f'-j {jobs} '
-        f'--rerun-incomplete ' 
-        f'--restart-times {restart_times} '
-        f'{cluster_param} '
-        f'--config {" ".join(k + "=" + v for k, v in conf.items())} '
+    cpu_resources = prep_resources(
+        num_samples=num_samples,
+        ncpus_requested=cores,
+        ncpus_per_node=refdata.ncpus_on_node,
+        is_cluster=cluster is not None
     )
 
-    #################
-    #### Running ####
-    #################
-
-    def _append_sm_log():
-        """ Snamemake writes its logs into a file like .snakemake/log/2018-09-16T113043.208368.snakemake.log
-            We wanto to append its contents to our log file
-        """
-        sm_log_dir = join(output_dir, '.snakemake', 'log')
-        sm_logs = sorted(Path(sm_log_dir).iterdir(), key=lambda fp: fp.stat().st_mtime)
-        if sm_logs:
-            with open(sm_logs[-1]) as fh:
-                logger._write_to_file(fh.read())
-                logger.info(f'Written snakemake log {sm_logs[0]} to {logger.log_fpath}')
-
-    if unlock:
-        logger.info('* Unlocking previous run... *')
-        run_simple(cmd + ' --unlock')
-        logger.info('* Now rerunning *')
-
-    try:
-        run_simple(cmd)
-
-    except subprocess.CalledProcessError:
-        _append_sm_log()
-        logger.error('-' * 60)
-        logger.error(f'Error running NAG: snakemake returned a non-zero status. Working directory: {output_dir}')
-        if cluster_log_dir:
-            logger.error(f'Review cluster job logs in {cluster_log_dir}')
-
+    cluster_log_dir = join(log_dir, 'cluster')
+    if cluster:
+        cluster_param = make_cluster_cmdl(cluster_log_dir, refdata, 'neoantigens')
     else:
-        _append_sm_log()
-        logger.info('-' * 60)
-        logger.info(f'Finished.')
-        logger.info(f'-' * 60)
-        logger.info()
+        cluster_param = None
 
-        sample = sample
-        mut_calls_mhc1 = join(output_dir, f'pvacseq_results/MHC_Class_I/{sample}.filtered.condensed.ranked.tsv')
-        mut_calls_mhc2 = join(output_dir, f'pvacseq_results/MHC_Class_II/{sample}.filtered.condensed.ranked.tsv')
-        fus_calls_mhc1 = join(output_dir, f'pvacfuse_results/MHC_Class_I/{sample}.filtered.condensed.ranked.tsv')
-        fus_calls_mhc2 = join(output_dir, f'pvacfuse_results/MHC_Class_II/{sample}.filtered.condensed.ranked.tsv')
+    snakefile = join(package_path(), 'Snakefile')
+    run_snakemake(
+        snakefile, conf,
+        output_dir=output_dir,
+        unlock=unlock,
+        dryrun=dryrun,
+        restart_times=restart_times,
+        debug=debug,
+        cores=cpu_resources.ncpus_available,
+        local_cores=cpu_resources.ncpus_local,
+        ncpus_per_batch=cpu_resources.ncpus_per_batch,
+        ncpus_per_sample=cpu_resources.ncpus_per_sample,
+        resources=hpc_resources,
+        cluster_param=cluster_param,
+        log_dir=log_dir,
+        cluster_log_dir=cluster_log_dir,
+        report=report,
+        dag=dag,
+    )
 
+    if input_tsv:
+        mut_calls_mhc1 = join(output_dir, f'MHC_Class_I/summary_seq.tsv')
+        mut_calls_mhc2 = join(output_dir, f'MHC_Class_II/summary_seq.tsv')
+        fus_calls_mhc1 = join(output_dir, f'MHC_Class_I/summary_fuse.tsv')
+        fus_calls_mhc2 = join(output_dir, f'MHC_Class_II/summary_fuse.tsv')
+        if not include_stages or 'pvacseq' in include_stages or 'all' in include_stages:
+            mut_calls_mhc1 = verify_file(mut_calls_mhc1, is_critical=True)
+            mut_calls_mhc2 = verify_file(mut_calls_mhc2, is_critical=True)
+            print(f'SNPs and indels, MHC Class I epitopes: {mut_calls_mhc1}')
+            print(f'SNPs and indels, MHC Class II epitopes: {mut_calls_mhc2}')
+            # epitopes = []
+            # with open(mut_calls_mhc1) as f:
+            #     for e in csv.DictReader(f):
+            #         epitopes.append(e)
+            # logger.info(f'Processed {len(epitopes)} samples, see top epitopes in {summary_tsv}')
+        if not include_stages or 'pvacfuse' in include_stages or 'all' in include_stages:
+            fus_calls_mhc1 = verify_file(fus_calls_mhc1, is_critical=True)
+            fus_calls_mhc2 = verify_file(fus_calls_mhc2, is_critical=True)
+            print(f'Fusions, MHC Class I epitopes: {fus_calls_mhc1}')
+            print(f'Fusions, MHC Class II epitopes: {fus_calls_mhc2}')
+    else:
+        sample = samples[0]
+        mut_calls_mhc1 = join(output_dir, f'{sample}/pvacseq_results/MHC_Class_I/{sample}.filtered.condensed.ranked.tsv')
+        mut_calls_mhc2 = join(output_dir, f'{sample}/pvacseq_results/MHC_Class_II/{sample}.filtered.condensed.ranked.tsv')
+        fus_calls_mhc1 = join(output_dir, f'{sample}/pvacfuse_results/MHC_Class_I/{sample}.filtered.condensed.ranked.tsv')
+        fus_calls_mhc2 = join(output_dir, f'{sample}/pvacfuse_results/MHC_Class_II/{sample}.filtered.condensed.ranked.tsv')
         if not include_stages or 'pvacseq' in include_stages or 'all' in include_stages:
             _report(mut_calls_mhc1, 'SNPs and indels, MHC Class I',  join(output_dir, 'snps_and_indels_mhcI.tsv'))
             _report(mut_calls_mhc2, 'SNPs and indels, MHC Class II', join(output_dir, 'snps_and_indels_mhcII.tsv'))
         if not include_stages or 'pvacfuse' in include_stages or 'all' in include_stages:
             _report(fus_calls_mhc1, 'Fusions, MHC Class I',  join(output_dir, 'fusions_mhcI.tsv'))
             _report(fus_calls_mhc2, 'Fusions, MHC Class II', join(output_dir, 'fusions_mhcII.tsv'))
-    finally:
-        # adding read permissions to cluster logs
-        subprocess.call(f'chmod -R a+r {log_dir}', shell=True)
 
 
 def _pvac_seq_tsv_stats(fpath):
@@ -179,7 +210,7 @@ def _pvac_seq_tsv_stats(fpath):
         except:  # empty file = no neoantigens called
             pass
         else:
-            csv_reader = csv.DictReader(fh, delimiter='\t', fieldnames=fieldnames)
+            csv_reader = csv.DictReader(fh, fieldnames=fieldnames)
             for entry in csv_reader:
                 total_lines += 1
                 epitopes.add(entry['MT Epitope Seq'])
@@ -194,7 +225,7 @@ def _pvac_seq_tsv_stats(fpath):
             except:  # empty file = no neoantigens called
                 pass
             else:
-                csv_reader = csv.DictReader(fh, delimiter='\t', fieldnames=fieldnames)
+                csv_reader = csv.DictReader(fh, fieldnames=fieldnames)
                 for entry in csv_reader:
                     muts.add((entry['Chromosome'], entry['Start'], entry['Stop']))
 
