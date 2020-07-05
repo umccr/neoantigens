@@ -539,7 +539,7 @@ rule balachandran_epitopes_quality:
 
 rule summarize:
     input:
-        expand('work/{sample}/quality_{{source}}/MHC_Class_{{cls}}/{sample}_neontigen_quality.tsv',
+        expand('{sample}/quality_{{source}}/MHC_Class_{{cls}}/{sample}_neontigen_quality.tsv',
                sample=inputs_by_sname.keys())
     output:
         summary = 'MHC_Class_{cls}/summary_{source}.tsv'
