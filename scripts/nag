@@ -28,9 +28,9 @@ from nag import package_path
 @click.option('-e', '--exclude', 'exclude', multiple=True,
               help='For multi-sample inputs: samples to ignore, e.g.: -e SAMPLE1 -e BATCH2')
 @click.option('-R', '--rna-bcbio', 'rna_bcbio', type=click.Path())
-@click.option('-r', '--rna-sample', 'rna_sample')
+@click.option('-r', '--rna-sample', 'rna_sample', help='Sample name to find in the RNA bcbio project')
 @click.option('-O', '--optitype-file', 'optitype_file')
-@click.option('-T', '--target', 'include_stages', multiple=True,
+@click.option('-T', '-S', '--target', 'include_stages', multiple=True,
               help='Optionally, specific stage to run')
 @click.option('-E', '--skip-target', 'exclude_stages', multiple=True,
               help='Optionally, stages to skip, e.g.: -E oncoviruses -E cpsr')
@@ -38,8 +38,8 @@ from nag import package_path
 @click.option('--ensembl-release', 'ensembl_release')
 @click.option('--pizzly-ref-fa', 'pizzly_ref_fa', type=click.Path(), help='Pizzly transcriptome fasta reference for requantification,'
               'e.g. /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/local_rnaseq/work/pizzly/hg38-noversions.fa')
-@click.option('--min-tvaf',
-              help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 10 (%). '
+@click.option('--min-tumor-af', 'min_tumor_af',
+              help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 0.1 (10%). '
                    'Set if you know sample tumor purity.')
 @click.option('--genomes', '--genomes-dir', 'input_genomes_url', help='Path to the reference data. Can be s3 or gds')
 
@@ -52,11 +52,6 @@ from nag import package_path
 @click.option('--debug', 'debug', is_flag=True, help='More verboe messages. Also sets restart times to 0.')
 @click.option('--unlock', 'unlock', is_flag=True,
               help='Use when you are rerunning after Ctrl+C or an error. Propagated to snakemake.')
-@click.option('-r', '--restarts', '--restart-times', 'restart_times',
-              help=f'How many times to try out rerunning rules if they fail. "--restart-times 1" means that the rule '
-                   f'will be attempted maximum 1 time. Default is {snakemake_utils.DEFAULT_RESTART_TIMES}. The value ropagated '
-                   f'to snakemake is decremented, because snakemake interprets it as "how many times to restart after '
-                   f'the rule is failed").')
 @click.option('-n', '--dryrun', 'dryrun', is_flag=True,
               help='Propagated to snakemake. Prints rules and commands to be run without actually executing them.')
 @click.option('--report', 'report',
@@ -69,9 +64,10 @@ from nag import package_path
               help='Can be used to limit the amount of memory allowed to be used, e.g.: --resources mem_mb=1000.'
                    'Propagated to snakemake.')
 
-def main(input_tsv, somatic_vcf, samples=None, exclude=None, rna_bcbio=None, rna_sample=None, optitype_file=None,
+def main(input_tsv, somatic_vcf, samples=None, exclude=None,
+         rna_bcbio=None, rna_sample=None, optitype_file=None,
          include_stages:list = None, exclude_stages:list = None, output_dir=None,
-         ensembl_release=None, pizzly_ref_fa=None, min_tvaf=None,
+         ensembl_release=None, pizzly_ref_fa=None, min_tumor_af=None,
          input_genomes_url=None,
          cores=None, cluster=False, debug=False, unlock=False, restart_times=None,
          dryrun=False, report=None, dag=False, hpc_resources=None):
@@ -79,11 +75,12 @@ def main(input_tsv, somatic_vcf, samples=None, exclude=None, rna_bcbio=None, rna
     output_dir = output_dir or 'neoantigens'
     output_dir = safe_mkdir(abspath(output_dir))
     log_dir = safe_mkdir(join(output_dir, 'log'))
+    work_dir = safe_mkdir(join(output_dir, 'work'))
     logger.init(log_fpath_=join(log_dir, 'neoantigens.log'), save_previous=True)
 
     conf = dict()
 
-    # check hpc_utils can find the genomes dir, and error out if not
+    # check if reference_data can find the genomes dir, and error out if not
     genomes_dir = refdata.find_genomes_dir(input_genomes_url)
     conf['genomes_dir'] = genomes_dir
 
@@ -127,8 +124,8 @@ def main(input_tsv, somatic_vcf, samples=None, exclude=None, rna_bcbio=None, rna
     elif os.environ.get('PIZZLY_REF_FA'):
         conf['pizzly_ref_fa'] = os.environ.get('PIZZLY_REF_FA')
 
-    if min_tvaf:
-        conf['min_tvaf'] = min_tvaf
+    if min_tumor_af:
+        conf['min_tumor_af'] = min_tumor_af
 
     cpu_resources = prep_resources(
         num_samples=num_samples,
@@ -139,7 +136,7 @@ def main(input_tsv, somatic_vcf, samples=None, exclude=None, rna_bcbio=None, rna
 
     cluster_log_dir = join(log_dir, 'cluster')
     if cluster:
-        cluster_param = make_cluster_cmdl(cluster_log_dir, refdata, 'neoantigens')
+        cluster_param = make_cluster_cmdl(safe_mkdir(cluster_log_dir), refdata, 'neoantigens')
     else:
         cluster_param = None
 
@@ -164,10 +161,10 @@ def main(input_tsv, somatic_vcf, samples=None, exclude=None, rna_bcbio=None, rna
     )
 
     if input_tsv:
-        mut_calls_mhc1 = join(output_dir, f'MHC_Class_I/summary_seq.tsv')
-        mut_calls_mhc2 = join(output_dir, f'MHC_Class_II/summary_seq.tsv')
-        fus_calls_mhc1 = join(output_dir, f'MHC_Class_I/summary_fuse.tsv')
-        fus_calls_mhc2 = join(output_dir, f'MHC_Class_II/summary_fuse.tsv')
+        mut_calls_mhc1 = join(output_dir, f'MHC_Class_I__summary_seq.tsv')
+        mut_calls_mhc2 = join(output_dir, f'MHC_Class_II_summary_seq.tsv')
+        fus_calls_mhc1 = join(output_dir, f'MHC_Class_I_summary_fuse.tsv')
+        fus_calls_mhc2 = join(output_dir, f'MHC_Class_II_summary_fuse.tsv')
         if not include_stages or 'pvacseq' in include_stages or 'all' in include_stages:
             mut_calls_mhc1 = verify_file(mut_calls_mhc1, is_critical=True)
             mut_calls_mhc2 = verify_file(mut_calls_mhc2, is_critical=True)

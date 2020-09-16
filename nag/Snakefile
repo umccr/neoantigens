@@ -9,6 +9,7 @@ from ngs_utils.logger import critical, info, debug, warn, err
 from ngs_utils.file_utils import verify_file, verify_dir
 from reference_data import api as refdata
 from nag import balachandran
+from nag import nag_summarize
 
 shell.executable(os.environ.get('SHELL', 'bash'))
 shell.prefix("")
@@ -97,7 +98,7 @@ EXCLUDE_NA = False
 
 rule all:
     input:
-        expand('MHC_Class_{cls}/summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
+        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
         expand('{sample}/pvacseq_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
                cls=['I', 'II'], sample=inputs_by_sname.keys()),
         expand('{sample}/pvacfuse_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
@@ -105,13 +106,13 @@ rule all:
 
 rule pvacseq:
     input:
-        expand('MHC_Class_{cls}/summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
+        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
         expand('{sample}/pvacseq_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
                cls=['I', 'II'], sample=inputs_by_sname.keys()),
 
 rule pvacfuse:
     input:
-        expand('MHC_Class_{cls}/summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
+        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
         expand('{sample}/pvacfuse_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
                cls=['I', 'II'], sample=inputs_by_sname.keys()),
 
@@ -539,35 +540,9 @@ rule balachandran_epitopes_quality:
 
 rule summarize:
     input:
-        expand('{sample}/quality_{{source}}/MHC_Class_{{cls}}/{sample}_neontigen_quality.tsv',
+        expand('work/{sample}/quality_{{source}}/MHC_Class_{{cls}}/{sample}_neontigen_quality.tsv',
                sample=inputs_by_sname.keys())
     output:
-        summary = 'MHC_Class_{cls}/summary_{source}.tsv'
+        summary = 'MHC_Class_{cls}_summary_{source}.tsv'
     run:
-        cols = ['Sample', 'NeoantigenID', 'MT.Peptide.Form', 'NeoantigenQuality',
-                'NeoantigenAlignment', 'IEDB_EpitopeAlignment', 'AlignmentScore', 'IEDB_Epitope']
-
-        top_epitope_by_sample = dict()
-        for sn, inp_fpath in zip(inputs_by_sname.keys(), input):
-            with open(inp_fpath) as f:
-                csv_reader = csv.DictReader(f, delimiter='\t')
-                epitopes = []
-                for e in csv_reader:
-                    epitopes.append(e)
-                if epitopes:
-                    epitopes.sort(key=lambda _e: _e['NeoantigenQuality'])
-                    best = epitopes[-1]  # the top one?
-                else:
-                    best = {c: '.' for c in cols}
-                    best['Sample'] = sn
-                top_epitope_by_sample[best['Sample']] = best
-
-        assert len(top_epitope_by_sample) == len(input)
-        assert len(top_epitope_by_sample) > 0, top_epitope_by_sample
-        with open(output.summary, 'w') as out:
-            out.write('\t'.join(cols) + '\n')
-            for sn, inp in inputs_by_sname.items():
-                out.write('\t'.join(top_epitope_by_sample[sn][c] for c in cols) + '\n')
-
-
-
+        nag_summarize(inputs_by_sname.keys(), input, output.summary)

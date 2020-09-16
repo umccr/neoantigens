@@ -1,0 +1,36 @@
+#!/usr/bin/env python
+import os
+import sys
+from os.path import isfile, join, dirname, abspath, relpath, basename
+from pathlib import Path
+import click
+import csv
+import subprocess
+from nag import _version as version
+
+from ngs_utils.file_utils import verify_file, adjust_path
+from ngs_utils.utils import set_locale; set_locale()
+from nag import nag_summarize
+
+
+@click.command()
+@click.version_option(version.__version__)
+@click.argument('quality_fpaths', type=click.Path(exists=True), nargs=-1)
+@click.option('-o', 'output_file', type=click.Path())
+
+def main(quality_fpaths, output_file):
+    """ Usage:
+        nag_summarize quality_fpaths sample_names output_file
+        quality_fpaths: Comma-separated sample names. Should match the quality paths.
+        sample_names: Comma-separated paths from individual NAG runs
+        output_file: path to write the output file
+    """
+    output_file = adjust_path(output_file)
+    quality_fpaths = [verify_file(fp) for fp in quality_fpaths]
+    sample_names = [basename(fp).replace('_neontigen_quality.tsv', '') for fp in quality_fpaths]
+
+    nag_summarize(sample_names, quality_fpaths, output_file)
+
+
+if __name__ == '__main__':
+    main()

@@ -8,7 +8,7 @@ version = versionpy.get_version(package_name)
 setup(
     name=package_name,
     version=version,
-    author='Vlad Saveliev',
+    author='Vlad Savelyev',
     description='UMCCR neoantigens calling pipeline',
     keywords='bioinformatics',
     license='GPLv3',
@@ -16,6 +16,7 @@ setup(
     scripts=[
         join('scripts', 'pizzly_to_bedpe.py'),
         join('scripts', 'nag'),
+        join('scripts', 'nag_summarize'),
     ],
     include_package_data=True,
 )
