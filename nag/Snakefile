@@ -3,10 +3,10 @@ import os
 from os.path import join, abspath, dirname, isfile, basename, splitext
 import csv
 
-from ngs_utils.vcf_utils import get_tumor_sample_name, vcf_contains_field
+from ngs_utils.vcf_utils import get_tumor_sample_name, vcf_contains_field, iter_vcf
 from ngs_utils.bcbio import BcbioProject
 from ngs_utils.logger import critical, info, debug, warn, err
-from ngs_utils.file_utils import verify_file, verify_dir
+from ngs_utils.file_utils import verify_file, verify_dir, open_gzipsafe
 from reference_data import api as refdata
 from nag import balachandran
 from nag import nag_summarize
@@ -88,11 +88,11 @@ PEP_5_PRIME_FLANK = 14  # Aminoacids to pick from both sides of the fusion junct
     # always call epitopes of the length 15, we set PEP_5_PRIME_FLANK to 14.
 
 # pVACseq parameters
-MIN_NORMAL_COV = 5
-MIN_TUMOR_COV = MIN_RNA_COV = 10
-MAX_NORMAL_VAF = 2
-MIN_TUMOR_VAF = MIN_RNA_VAF = config.get('min_tvaf', 10)
-MIN_EXPN = 1  # TPM expression should be at least 1
+MIN_NORMAL_DP = 5
+MAX_NORMAL_AF = 0.02
+MIN_TUMOR_DP = MIN_RNA_DP = 10
+MIN_TUMOR_AF = MIN_RNA_AF = config.get('min_tumor_af', 0.1)
+MIN_EXPN = 1.0  # TPM expression should be at least 1
 EXCLUDE_NA = False
 
 
@@ -140,14 +140,56 @@ def _pvac_cmdl(tool, input, sample, hla_types, output_dir, threads, other_params
         cmd += f' --exclude-NAs'
     return cmd
 
-# rule pvacseq_filter:
-#     input:  dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.tsv'),
-#     output: dynamic('pvacseq_results/MHC_Class_{cls}/{SNAME}.final.filt.tsv')
-#     shell : 'pvacseq top_score_filter -m median MHC_Class_II/diploid_tumor.final.tsv MHC_Class_II/diploid_tumor.final.TOP.tsv'
-    # also filer to remove epitopes shorter than FLANKING_PEPTIDE+1 that start earlier than FLANKING_PEPTIDE+1-len(epitope)
-    # in output: len(epitope) = Peptide Length
-    #            start        = Sub-peptide Position
-    # explore why MHC II takes 31aa
+
+#################
+### Loading RNA information
+bcbio_run_by_path = dict()
+for sn, inp in inputs_by_sname.items():
+    if inp['rna_bcbio'] not in bcbio_run_by_path:
+        rna_run = BcbioProject(inp['rna_bcbio'], silent=True)
+        assert rna_run.genome_build == 'hg38'
+        bcbio_run_by_path[inp['rna_bcbio']] = rna_run
+
+def get_rna_data(wc):
+    rna_bcbio_path = inputs_by_sname[wc.sample]['rna_bcbio']
+    rna_sname = inputs_by_sname[wc.sample]['rna_sample']
+
+    rna_run = bcbio_run_by_path[rna_bcbio_path]
+    rna_sample = [s for s in rna_run.samples if s.name == rna_sname][0]
+    rna_bam = rna_sample.bam
+    rna_counts_tx = join(rna_sample.dirpath, 'kallisto', 'abundance.tsv')
+    rna_pizzly_prefix = join(rna_sample.dirpath, 'pizzly', rna_sname)
+    fastq1, fastq2 = None, None
+    fastq = [f for f in rna_sample.sample_info['files'] if not f.endswith('.bam') and verify_file(f, silent=True)]
+    if fastq:
+        if len(fastq) != 2:
+            critical(f'Expected either 1 BAM file, or 2 FASTQ files in "files" field in bcbio config '
+                     f'at {rna_bcbio_path}, sample {rna_sname}')
+        fastq1 = fastq[0]
+        fastq2 = fastq[1]
+    else:
+        bam = rna_sample.sample_info['files'][0]
+        assert bam.endswith('bam'), f'Input for sample {rna_sname} is neither a pair of fastq nor a BAM file: {bam}'
+        bam_name = splitext(basename(bam))[0]
+        fastq1 = verify_file(join(rna_run.work_dir, 'align_prep', f'{bam_name}-1.fq.gz'))
+        fastq2 = verify_file(join(rna_run.work_dir, 'align_prep', f'{bam_name}-2.fq.gz'))
+        if not fastq1 and not fastq2:
+            warn(f'Could not find RNAseq input fastq for requantification at '
+                 f'{rna_bcbio_path}, sample {rna_sname}')
+
+    res = dict(
+        bam=rna_bam,
+        counts_tx=rna_counts_tx,
+        pizzly_prefix=rna_pizzly_prefix,
+        pizzly_tsv=rna_pizzly_prefix + '-flat-filtered.tsv',
+        pizzly_json=rna_pizzly_prefix + '.json',
+        pizzly_fasta=rna_pizzly_prefix + '.fusions.fasta',
+    )
+    if fastq1:
+        res['fastq1'] = fastq1
+    if fastq:
+        res['fastq2'] = fastq2
+    return res
 
 
 ################
@@ -162,38 +204,25 @@ rule prep_hla:
          lambda wc: inputs_by_sname[wc.sample]['optitype_file']
     output:
         'work/{sample}/hla_line.txt'
-    shell: r"""
-    grep -v ^sample {input} | tr ',' '\t' | cut -f3 | tr ';' '\n' | sort -u | tr '\n' ',' | head -c -1 > {output}
-    """
+    run:
+        alleles = []
+        with open(input[0]) as f:
+            for i, l in enumerate(f):
+                if i != 0:
+                    fs = l.strip().split('\t')[1:7]
+                    alleles.extend([f'HLA-{f}' for f in fs])
+        with open(output[0], 'w') as f:
+            f.write(','.join(alleles))
 
 
 ################
 ### Small mutations (for pVACseq)
 
-rule vcf_af_filter:  # {batch}
-    input:
-         lambda wc: inputs_by_sname[wc.sample]['somatic_vcf']
-    output:
-         'work/{sample}/vcf_prep/somatic.AF_FILT.vcf.gz'
-    params:
-         tvaf = MIN_TUMOR_VAF / 100,
-         nvaf = MAX_NORMAL_VAF / 100,
-         tcov = MIN_TUMOR_COV,
-         ncov = MIN_NORMAL_COV,
-    shell:  """
-    bcftools filter -i "\
-    TUMOR_AF>={params.tvaf} && 
-    NORMAL_AF<={params.nvaf} && 
-    TUMOR_DP>={params.tcov} && \
-    NORMAL_DP>={params.ncov}\
-    " {input} -Oz -o {output} && tabix {output}
-    """
-
 rule drop_older_csq:
     input:
-        vcf = 'work/{sample}/vcf_prep/somatic.AF_FILT.vcf.gz',
+        vcf = lambda wc: inputs_by_sname[wc.sample]['somatic_vcf'],
     output:
-        vcf = 'work/{sample}/vcf_prep/somatic.AF_FILT.CLEAN_PREV_VEP.vcf.gz',
+        vcf = 'work/{sample}/step1_vcf_drop_older_csq/somatic.vcf.gz',
     run:
         cmd = f'cat {input.vcf}'
         # remove previous VEP annotation:
@@ -215,11 +244,11 @@ rule drop_older_csq:
 #   protein sequence in the annotation.
 rule vcf_vep:
     input:
-        'work/{sample}/vcf_prep/somatic.AF_FILT.CLEAN_PREV_VEP.vcf.gz',
+        vcf = 'work/{sample}/step1_vcf_drop_older_csq/somatic.vcf.gz',
         vep_data = VEP_DATA,
         ref_fa = REF_FA,
     output:
-        'work/{sample}/vep/somatic.AF_FILT.VEP.vcf',
+        vcf = 'work/{sample}/step2_vcf_vep/somatic.vcf.gz',
     params:
         genome_build = ENSEMBL_GENOME,
         cache_version = VEP_ENSEMBL_RELEASE,
@@ -247,142 +276,61 @@ rule vcf_vep:
         '--dir_cache {input.vep_data} '
         '--cache_version {params.cache_version}'
 
-rule vcf_select:
-    input:
-        'work/{sample}/vep/somatic.AF_FILT.VEP.vcf'
-    output:
-        'work/{sample}/vep/somatic.AF_FILT.VEP.TUMOR_SAMPLE.vcf'
-    params:
-        sample = lambda wc, input: get_tumor_sample_name(input[0])
-    shell:
-        'bcftools view -s {params.sample} {input} | grep -v PEDIGREE > {output}'
-
-
-#################
-### Adding RNA information
-bcbio_run_by_path = dict()
-for sn, inp in inputs_by_sname.items():
-    if inp['rna_bcbio'] not in bcbio_run_by_path:
-        rna_run = BcbioProject(inp['rna_bcbio'], silent=True)
-        assert rna_run.genome_build == 'hg38'
-        bcbio_run_by_path[inp['rna_bcbio']] = rna_run
-
-
-def get_rna_data(wc):
-    rna_bcbio_path = inputs_by_sname[wc.sample]['rna_bcbio']
-    rna_sname = inputs_by_sname[wc.sample]['rna_sample']
-
-    rna_run = bcbio_run_by_path[rna_bcbio_path]
-    rna_sample = [s for s in rna_run.samples if s.name == rna_sname][0]
-    rna_bam = rna_sample.bam
-    rna_counts_tx = join(rna_sample.dirpath, 'kallisto', 'abundance.tsv')
-    rna_pizzly_prefix = join(rna_sample.dirpath, 'pizzly', rna_sname)
-    fastq1, fastq2 = None, None
-    fastq = [f for f in rna_sample.sample_info['files'] if not f.endswith('.bam') and verify_file(f, silent=True)]
-    if fastq:
-        if len(fastq) != 2:
-            critical(f'Expected either 1 BAM file, or 2 FASTQ files in "files" field in bcbio config '
-                     f'at {rna_bcbio_path}, sample {rna_sname}')
-        fastq1 = fastq[0]
-        fastq2 = fastq[1]
-    else:
-        bam = rna_sample.sample_info['files'][0]
-        assert bam.endswith('bam'), f'Input for sample {rna_sname} is neither a pair of fastq nor a BAM file: {bam}'
-        bam_name = splitext(basename(bam))[0]
-        fastq1 = verify_file(join(rna_run.work_dir, 'align_prep', f'{bam_name}-1.fq.gz'))
-        fastq2 = verify_file(join(rna_run.work_dir, 'align_prep', f'{bam_name}-2.fq.gz'))
-        if not fastq1 and not fastq2:
-            critical(f'Could not find RNAseq input fastq for requantification at {rna_bcbio_path}, sample {rna_sname}')
-
-    return dict(
-        bam=rna_bam,
-        counts_tx=rna_counts_tx,
-        pizzly_prefix=rna_pizzly_prefix,
-        pizzly_tsv=rna_pizzly_prefix + '-flat-filtered.tsv',
-        pizzly_json=rna_pizzly_prefix + '.json',
-        pizzly_fasta=rna_pizzly_prefix + '.fusions.fasta',
-        fastq1=fastq1,
-        fastq2=fastq2,
-    )
-
-################
-### Variant coverage and expression (for pVACseq coverageFilter)
-
-rule extract_snps_sites:  # 1-based coordinates
-    input:
-        'work/{sample}/vep/somatic.AF_FILT.VEP.TUMOR_SAMPLE.vcf'
-    output:
-        'work/{sample}/somatic_snp_sites.txt',
-    shell:
-        'bcftools view -v snps {input} | '
-        'bcftools query -f "%CHROM \\t %POS \\n" | '
-        'awk \'{{ OFS="\\t" }} {{ print $1,$2,$2 }}\' > {output}'
-
-rule extract_indels_sites:
-    input:
-        'work/{sample}/vep/somatic.AF_FILT.VEP.TUMOR_SAMPLE.vcf'
-    output:
-        'work/{sample}/somatic_indel_sites.txt',
-    shell:
-        'bcftools view -v indels {input} | '
-        'bcftools query -f "%CHROM \\t %POS \\n" | '
-        'awk \'{{ OFS="\\t" }}{{ print $1,$2,$2 }}\' > {output}'
-
-rule rna_bam_readcount_snps:
-    input:
-        bam = lambda wc: get_rna_data(wc)['bam'],
-        sites = 'work/{sample}/somatic_{type}_sites.txt',
-        ref_fa = REF_FA,
-    params:
-        indel_opt = lambda wildcards: '-i ' if wildcards.type == 'indel' else ''
-    output:
-        'work/{sample}/trna_{type}_coverage_file.txt',
-    resources:
-        mem_mb=10000
-    shell:
-        'bam-readcount -f {input.ref_fa} --max-warnings 1 '
-        '-l {input.sites} {input.bam} {params.indel_opt} > {output}'
-
-# rule merge_rna_bam_readcount:
-#     input:
-#         expand(join(work_dir, 'trna_{type}_coverage_file.txt'), type=['indel', 'snp'])
-#     output:
-#         join(work_dir, 'trna_coverage_file.txt')
-#     shell:
-#         'cat {input} > {output}'
-
-rule rna_coverage_anno_snp:
-    input:
-        vcf = 'work/{sample}/vep/somatic.AF_FILT.VEP.TUMOR_SAMPLE.vcf',
-        cov_file = 'work/{sample}/trna_snp_coverage_file.txt',
-    output:
-        vcf = 'work/{sample}/afdp/somatic.AF_FILT.VEP.TUMOR_SAMPLE.RNAAFSNP.vcf'
-    resources:
-        mem_mb=10000
-    shell:
-        'vcf-readcount-annotator {input.vcf} {input.cov_file} '
-        'RNA -t snv -o {output.vcf}'
-
-rule rna_coverage_anno_indel:
-    input:
-        vcf = 'work/{sample}/afdp/somatic.AF_FILT.VEP.TUMOR_SAMPLE.RNAAFSNP.vcf',
-        cov_file = 'work/{sample}/trna_indel_coverage_file.txt',
-    output:
-        vcf = 'work/{sample}/afdp/somatic.AF_FILT.VEP.TUMOR_SAMPLE.RNAAFSNP.RNAAFINDEL.vcf'
-    shell:
-        'vcf-readcount-annotator {input.vcf} {input.cov_file} '
-        'RNA -t indel -o {output.vcf}'
-
-
 rule transcript_expression_anno:
     input:
-        vcf = 'work/{sample}/afdp/somatic.AF_FILT.VEP.TUMOR_SAMPLE.RNAAFSNP.RNAAFINDEL.vcf',
+        vcf = 'work/{sample}/step2_vcf_vep/somatic.vcf.gz',
         expr_file = lambda wc: get_rna_data(wc)['counts_tx'],
     output:
-        vcf = 'work/{sample}/afdp/somatic.AF_FILT.VEP.TUMOR_SAMPLE.RNAAFSNP.RNAAFINDEL.TX.vcf',
+        vcf = 'work/{sample}/step3_vcf_expr_anno/somatic.vcf.gz',
+    run:
+        import pandas as pd
+        df = pd.read_csv(input.expr_file, sep='\t', index_col='target_id')
+        def _proc_rec(rec, vcf):
+            tpm_by_enst = dict()
+            csq = rec.INFO['CSQ']
+            if isinstance(csq, str):
+                csq = csq.split(',')
+            for annotation in csq:
+                enst = annotation.split(',')[0].split('|')[6]
+                try:
+                    tpm = df.loc[enst, 'tpm']
+                except:
+                    pass
+                else:
+                    tpm_by_enst[enst] = tpm
+            if tpm_by_enst:
+                val = [f'{enst}|{tpm}' for enst, tpm in tpm_by_enst.items()]
+                rec.INFO['TranscriptExprTPM'] = ','.join(val)
+                rec.INFO['MaxTranscriptExprTPM'] = max(tpm_by_enst.values())
+            return rec
+
+        def _proc_hdr(vcf):
+            vcf.add_info_to_header({'ID': 'TranscriptExprTPM',
+                'Description': 'TPM value by transcript, reported by Kallisto in abundance.tsv',
+                'Type': 'String', 'Number': '.'})
+            vcf.add_info_to_header({'ID': 'MaxTranscriptExprTPM',
+                'Description': 'Max TPM value across all transcripts, '
+                               'reported by Kallisto in abundance.tsv',
+                'Type': 'Float', 'Number': '1'})
+
+        iter_vcf(input.vcf, output.vcf, proc_rec=_proc_rec, proc_hdr=_proc_hdr)
+
+rule vcf_filter:  # {batch}
+    input:
+        vcf = 'work/{sample}/step3_vcf_expr_anno/somatic.vcf.gz',
+    output:
+        vcf = 'work/{sample}/step4_vcf_filter/somatic.vcf.gz',
     shell:
-        'vcf-expression-annotator {input.vcf} {input.expr_file} '
-        'kallisto transcript -o {output.vcf}'
+        'bcftools filter {input.vcf} -i "'
+        'TUMOR_AF>={MIN_TUMOR_AF} & '
+        'TUMOR_DP>={MIN_TUMOR_DP} & '
+        'RNA_AF>={MIN_RNA_AF} & '
+        'RNA_DP>={MIN_RNA_DP} & '
+        'MaxTranscriptExprTPM>={MIN_EXPN} & '
+        'NORMAL_AF<={MAX_NORMAL_AF} & '
+        'NORMAL_DP>={MIN_NORMAL_DP}" '
+        '-Oz -o {output.vcf} && tabix {output.vcf}'
+
 
 #################
 ### prepare fusions (for pVACfuse)
@@ -392,8 +340,6 @@ rule rna_pizzly_to_bedpe:
         lambda wc: get_rna_data(wc)['pizzly_tsv'],
         lambda wc: get_rna_data(wc)['pizzly_json'],
         lambda wc: get_rna_data(wc)['pizzly_fasta'],
-        fastq1 = lambda wc: get_rna_data(wc)['fastq1'],
-        fastq2 = lambda wc: get_rna_data(wc)['fastq2'],
     params:
         pizzly_prefix = lambda wc: get_rna_data(wc)['pizzly_prefix'],
         pep_5_prime_flank = PEP_5_PRIME_FLANK,
@@ -404,15 +350,21 @@ rule rna_pizzly_to_bedpe:
         bedpe = 'work/{sample}/pizzly/{sample}.bedpe'
     resources:
         mem_mb=40000
-    shell:
-        'export PYENSEMBL_CACHE_DIR={params.pyensembl_basedir} && '
-        'pizzly_to_bedpe.py {params.pizzly_prefix} -o {output.bedpe} -e {params.pyensembl_release} '
-        '-p {params.pep_5_prime_flank} -r {input.fastq1} -r {input.fastq2} '
-        '{params.pizzly_ref_fa_opt}'
+    run:
+        fastq1 = get_rna_data(wildcards).get('fastq1')
+        fastq2 = get_rna_data(wildcards).get('fastq2')
+        fastq_opt = ''
+        if fastq1 and fastq2:
+            fastq_opt = f' -r {fastq1} -r {fastq2}'
+        shell(
+            'export PYENSEMBL_CACHE_DIR={params.pyensembl_basedir} && '
+            'pizzly_to_bedpe.py {params.pizzly_prefix} -o {output.bedpe} -e {params.pyensembl_release} '
+            '-p {params.pep_5_prime_flank} {fastq_opt} {params.pizzly_ref_fa_opt}'
+        )
 
 rule run_pvacseq:
     input:
-        vcf       = 'work/{sample}/afdp/somatic.AF_FILT.VEP.TUMOR_SAMPLE.RNAAFSNP.RNAAFINDEL.TX.vcf',
+        vcf = 'work/{sample}/step4_vcf_filter/somatic.vcf.gz',
         hla_types = 'work/{sample}/hla_line.txt',
     output:
         expand('{{sample}}/pvacseq_results/MHC_Class_{CLS}/{{sample}}.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
@@ -422,7 +374,7 @@ rule run_pvacseq:
     resources:
         mem_mb=10000
     run:
-        with open(input.vcf) as fh:
+        with open_gzipsafe(input.vcf) as fh:
             lines_num = [l for l in fh.readlines() if not l.startswith('#')]
         if len(lines_num) == 0:
             warn('No mutations to run pVACseq.')
@@ -434,10 +386,7 @@ rule run_pvacseq:
                 wildcards.sample,
                 '{input.hla_types}',
                 '{params.out_dir}',
-                threads,
-                f'--trna-cov {MIN_RNA_COV} '
-                f'--trna-vaf {MIN_RNA_VAF} '
-                f'--expn-val {MIN_EXPN} '
+                threads
             ))
             for of in output:
                 if not isfile(of):
