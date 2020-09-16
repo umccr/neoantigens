@@ -127,7 +127,7 @@ def _pvac_cmdl(tool, input, sample, hla_types, output_dir, threads, other_params
         f'{output_dir} '
         f'-e {EPITOPE_LENGTHS} '
         f'--top-score-metric=lowest '
-        # f'-t {threads} '
+        f'--n-threads {threads} '
         f'--iedb-install-directory {IEDB_DIR} '
         f'--keep-tmp-files '
         f'{other_params} '
@@ -450,7 +450,7 @@ rule run_pvacfuse:
     output:
         expand('{{sample}}/pvacfuse_results/MHC_Class_{CLS}/{{sample}}.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
     params:
-        out_dir = '{sample}/pvacfuse_results'
+        out_dir = '{sample}/pvacfuse_results',
     threads: 10
     resources:
         mem_mb=10000
