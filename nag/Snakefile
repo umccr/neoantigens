@@ -159,7 +159,7 @@ def get_rna_data(wc):
     rna_bam = rna_sample.bam
     rna_counts_tx = join(rna_sample.dirpath, 'kallisto', 'abundance.tsv')
     rna_pizzly_prefix = join(rna_sample.dirpath, 'pizzly', rna_sname)
-    fastq1, fastq2 = None, None
+
     fastq = [f for f in rna_sample.sample_info['files'] if not f.endswith('.bam') and verify_file(f, silent=True)]
     if fastq:
         if len(fastq) != 2:
@@ -167,6 +167,7 @@ def get_rna_data(wc):
                      f'at {rna_bcbio_path}, sample {rna_sname}')
         fastq1 = fastq[0]
         fastq2 = fastq[1]
+        info('Found FASTQ files in input config `files`')
     else:
         bam = rna_sample.sample_info['files'][0]
         assert bam.endswith('bam'), f'Input for sample {rna_sname} is neither a pair of fastq nor a BAM file: {bam}'
@@ -176,6 +177,7 @@ def get_rna_data(wc):
         if not fastq1 and not fastq2:
             warn(f'Could not find RNAseq input fastq for requantification at '
                  f'{rna_bcbio_path}, sample {rna_sname}')
+        info('Found FASTQ files in the `work/align_prep` directory')
 
     res = dict(
         bam=rna_bam,
@@ -187,7 +189,7 @@ def get_rna_data(wc):
     )
     if fastq1:
         res['fastq1'] = fastq1
-    if fastq:
+    if fastq2:
         res['fastq2'] = fastq2
     return res
 
@@ -367,9 +369,10 @@ rule run_pvacseq:
         vcf = 'work/{sample}/step4_vcf_filter/somatic.vcf.gz',
         hla_types = 'work/{sample}/hla_line.txt',
     output:
-        expand('{{sample}}/pvacseq_results/MHC_Class_{CLS}/{{sample}}.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
-    params:
-        out_dir = '{sample}/pvacseq_results'
+        fpaths = expand(
+            '{{sample}}/pvacseq_results/MHC_Class_{CLS}/{{sample}}.filtered.condensed.ranked.tsv',
+            CLS=['I', 'II']),
+        out_dir = directory('{sample}/pvacseq_results')
     threads: 10
     resources:
         mem_mb=10000
@@ -378,28 +381,27 @@ rule run_pvacseq:
             lines_num = [l for l in fh.readlines() if not l.startswith('#')]
         if len(lines_num) == 0:
             warn('No mutations to run pVACseq.')
-            shell('touch {output}')
+            shell('touch {output.fpaths}')
         else:
             shell(_pvac_cmdl(
                 'pvacseq',
-                '{input.vcf}',
+                f'{input.vcf}',
                 wildcards.sample,
-                '{input.hla_types}',
-                '{params.out_dir}',
+                f'{input.hla_types}',
+                f'{output.out_dir}',
                 threads
             ))
-            for of in output:
-                if not isfile(of):
-                    shell(f'touch {of}')
+            shell(f'touch {output.fpaths}')
 
 rule run_pvacfuse:
     input:
         bedpe     = 'work/{sample}/pizzly/{sample}.bedpe',
         hla_types = 'work/{sample}/hla_line.txt',
     output:
-        expand('{{sample}}/pvacfuse_results/MHC_Class_{CLS}/{{sample}}.filtered.condensed.ranked.tsv', CLS=['I', 'II']),
-    params:
-        out_dir = '{sample}/pvacfuse_results',
+        fpaths = expand(
+            '{{sample}}/pvacfuse_results/MHC_Class_{CLS}/{{sample}}.filtered.condensed.ranked.tsv',
+            CLS=['I', 'II']),
+        out_dir = directory('{sample}/pvacfuse_results'),
     threads: 10
     resources:
         mem_mb=10000
@@ -408,21 +410,19 @@ rule run_pvacfuse:
             lines_num = [l for l in fh.readlines() if not l.startswith('chr')]
         if len(lines_num) == 0:
             warn('No fusions to run pVACfuse.')
-            shell('touch {output}')
+            shell('touch {output.fpaths}')
         else:
-            bedpe = join(params.out_dir, wildcards.sample + '.bedpe')
+            bedpe = join(output.out_dir, wildcards.sample + '.bedpe')
             shell(f'grep -v ^chr {input.bedpe} > {bedpe}')
             shell(_pvac_cmdl(
                 'pvacfuse',
                 bedpe,
                 wildcards.sample,
-                '{input.hla_types}',
-                '{params.out_dir}',
+                f'{input.hla_types}',
+                f'{output.out_dir}',
                 threads,
             ))
-            for of in output:
-                if not isfile(of):
-                    shell(f'touch {of}')
+            shell(f'touch {output.fpaths}')
 
 
 rule balachandran_epitopes_to_fasta:
