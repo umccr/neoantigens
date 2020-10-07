@@ -211,7 +211,7 @@ def _pvac_seq_tsv_stats(fpath):
             except:  # empty file = no neoantigens called
                 pass
             else:
-                csv_reader = csv.DictReader(fh, fieldnames=fieldnames)
+                csv_reader = csv.DictReader(fh, fieldnames=fieldnames, delimiter='\t')
                 for entry in csv_reader:
                     muts.add((entry['Chromosome'], entry['Start'], entry['Stop']))
 
