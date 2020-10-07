@@ -35,7 +35,6 @@ from nag import package_path
 @click.option('-E', '--skip-target', 'exclude_stages', multiple=True,
               help='Optionally, stages to skip, e.g.: -E oncoviruses -E cpsr')
 @click.option('-o', 'output_dir', type=click.Path(), help='Output directory (default is "umccrise")')
-@click.option('--ensembl-release', 'ensembl_release', default=95)
 @click.option('--min-tumor-af', 'min_tumor_af',
               help='Miniaml AF of tumor mutations (both in DNA and RNA). Default is 0.1 (10%). '
                    'Set if you know sample tumor purity.')
@@ -65,7 +64,7 @@ from nag import package_path
 def main(input_tsv, somatic_vcf, samples=None, exclude=None,
          rna_bcbio=None, rna_sample=None, optitype_file=None,
          include_stages:list = None, exclude_stages:list = None, output_dir=None,
-         ensembl_release=None, min_tumor_af=None,
+         min_tumor_af=None,
          input_genomes_url=None,
          cores=None, cluster=False, debug=False, unlock=False, restart_times=None,
          dryrun=False, report=None, dag=False, hpc_resources=None):
@@ -113,11 +112,6 @@ def main(input_tsv, somatic_vcf, samples=None, exclude=None,
             include_stages = ['pvacseq']
 
     conf['include_stages'] = include_stages
-
-    if ensembl_release:
-        conf['ensembl_release'] = ensembl_release
-    elif os.environ.get('ENSEMBL_VERSION'):
-        conf['ensembl_release'] = os.environ.get('ENSEMBL_VERSION')
 
     if min_tumor_af:
         conf['min_tumor_af'] = min_tumor_af

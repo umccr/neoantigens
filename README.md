@@ -9,7 +9,7 @@ Refer to [install_readme.sh](install_readme.sh) for instructions.
 Load with:
 
 ```
-$ export PATH=/g/data/gx8/extras/umccrise_2020_Sep/miniconda/envs/umccrise_neoantigens/bin:$PATH
+$ export PATH=/g/data/gx8/extras/umccrise_2020_Aug/miniconda/envs/umccrise_neoantigens/bin:$PATH
 ```
 
 ### Usage
@@ -44,7 +44,7 @@ $ nag -v /g/data/gx8/projects/Saveliev_APGI/LTS/results/umccrised/APGI_2121/smal
 ### Usage in umccrise
 
 ```
-$ source /g/data/gx8/extras/umccrise_2020_Sep/load_umccrise.sh
+$ source /g/data/gx8/extras/umccrise_2020_Aug/load_umccrise.sh
 $ umccrise umccrise.tsv -S neoantigens -o results
 
 where `umccrise.tsv` is a tab-separated file like the following:

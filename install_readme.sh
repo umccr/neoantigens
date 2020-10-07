@@ -1,8 +1,8 @@
 # Don't source it. Follow carefully.
 
 #VEP_DATA=/Users/vsaveliev/bio/genomes/pcgr/data/grch38/.vep/homo_sapiens/98_GRCh38/ # /g/data3/gx8/extras/umccrise_2019_Aug/genomes/pcgr/data/grch38/.vep
-VEP_DATA=/g/data3/gx8/extras/umccrise/genomes/hg38/pcgr/data/grch38/.vep
-CONDA_BASE=/g/data3/gx8/extras/vlad/miniconda/envs
+VEP_DATA=/g/data3/gx8/extras/umccrise_genomes/hg38/pcgr/data/grch38/.vep
+CONDA_BASE=/g/data/gx8/extras/umccrise_2020_Aug/miniconda/envs
 
 #PYENSEMBL_DIR=/Users/vsaveliev/bio/genomes
 PYENSEMBL_CACHE_DIR=/g/data3/gx8/extras/umccrise/genomes/hg38

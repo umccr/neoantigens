@@ -56,7 +56,6 @@ for sn, inp in inputs_by_sname.items():
 GENOME                 = 'hg38'
 ENSEMBL_GENOME         = 'GRCh38'
 PIZZLY_ENSEMBL_RELEASE = config.get('ensembl_release', 95)
-VEP_ENSEMBL_RELEASE    = config.get('ensembl_release', 98)
 PYENSEMBL_DIR          = config.get('ensembl_dir', refdata.get_ref_file(genome=GENOME, key='pyensembl_data'))
 VEP_DATA               = glob.glob(join(refdata.get_ref_file(genome=GENOME, key='pcgr_data'), '*/.vep'))[0]
 IEDB_DIR               = config.get('iedb_dir', refdata.get_ref_file(key='iedb_dir'))
@@ -246,7 +245,6 @@ rule vcf_vep:
         vcf = 'work/{sample}/step2_vcf_vep/somatic.vcf.gz',
     params:
         genome_build = ENSEMBL_GENOME,
-        cache_version = VEP_ENSEMBL_RELEASE,
     resources:
         mem_mb=10000
     shell:
@@ -269,7 +267,6 @@ rule vcf_vep:
         '--offline '
         '--cache '
         '--dir_cache {input.vep_data} '
-        '--cache_version {params.cache_version}'
 
 rule transcript_expression_anno:
     input:
