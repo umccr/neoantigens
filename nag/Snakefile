@@ -62,7 +62,6 @@ VEP_DATA               = glob.glob(join(refdata.get_ref_file(genome=GENOME, key=
 IEDB_DIR               = config.get('iedb_dir', refdata.get_ref_file(key='iedb_dir'))
 REF_FA                 = config.get('ref_fa', refdata.get_ref_file(genome=GENOME, key='fa'))
 USE_REMOTE_DB          = config.get('internet_is_on', False)
-PIZZLY_REF_FA          = config.get('pizzly_ref_fa')
 
 
 # pVACtools parameters
@@ -96,25 +95,19 @@ MIN_EXPN = 1.0  # TPM expression should be at least 1
 EXCLUDE_NA = False
 
 
+stages = config.get('stages', ['seq', 'fuse', 'qual'])
+
+
 rule all:
     input:
-        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
+        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'],
+               source=[s for s in ['seq', 'fuse'] if s in stages]),
         expand('{sample}/pvacseq_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
-               cls=['I', 'II'], sample=inputs_by_sname.keys()),
+               cls=['I', 'II'], sample=inputs_by_sname.keys()) \
+             if ('qual' in stages and 'seq' in stages) else [],
         expand('{sample}/pvacfuse_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
-               cls=['I', 'II'], sample=inputs_by_sname.keys()),
-
-rule pvacseq:
-    input:
-        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
-        expand('{sample}/pvacseq_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
-               cls=['I', 'II'], sample=inputs_by_sname.keys()),
-
-rule pvacfuse:
-    input:
-        expand('MHC_Class_{cls}_summary_{source}.tsv', cls=['I', 'II'], source=['seq', 'fuse']),
-        expand('{sample}/pvacfuse_results/MHC_Class_{cls}/{sample}.filtered.condensed.ranked.tsv',
-               cls=['I', 'II'], sample=inputs_by_sname.keys()),
+               cls=['I', 'II'], sample=inputs_by_sname.keys()) \
+             if ('qual' in stages and 'fuse' in stages) else [],
 
 
 def _pvac_cmdl(tool, input, sample, hla_types, output_dir, threads, other_params=''):
@@ -342,12 +335,12 @@ rule rna_pizzly_to_bedpe:
         lambda wc: get_rna_data(wc)['pizzly_tsv'],
         lambda wc: get_rna_data(wc)['pizzly_json'],
         lambda wc: get_rna_data(wc)['pizzly_fasta'],
+        pizzly_ref_fa = refdata.get_ref_file(genome='hg38', key='pizzly_ref_fa'),
     params:
         pizzly_prefix = lambda wc: get_rna_data(wc)['pizzly_prefix'],
         pep_5_prime_flank = PEP_5_PRIME_FLANK,
         pyensembl_basedir = dirname(PYENSEMBL_DIR),
         pyensembl_release = PIZZLY_ENSEMBL_RELEASE,
-        pizzly_ref_fa_opt = f'--pizzly-ref-fa {PIZZLY_REF_FA} ' if PIZZLY_REF_FA else '',
     output:
         bedpe = 'work/{sample}/pizzly/{sample}.bedpe'
     resources:
@@ -361,7 +354,7 @@ rule rna_pizzly_to_bedpe:
         shell(
             'export PYENSEMBL_CACHE_DIR={params.pyensembl_basedir} && '
             'pizzly_to_bedpe.py {params.pizzly_prefix} -o {output.bedpe} -e {params.pyensembl_release} '
-            '-p {params.pep_5_prime_flank} {fastq_opt} {params.pizzly_ref_fa_opt}'
+            '-p {params.pep_5_prime_flank} {fastq_opt} --pizzly-ref-fa {input.pizzly_ref_fa}'
         )
 
 rule run_pvacseq:
