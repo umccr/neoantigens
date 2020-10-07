@@ -73,10 +73,3 @@ if [ ! -d ${PYENSEMBL_CACHE_DIR}/pyensembl ] ; then
     # when it starts `Reading GTF from`, go into a worker node and run again.
 fi
 
-########################
-### bam-readcount (for pvacseq coverage of rnaseq)
-# bam-readcount cannot install into the same conda env, thus we are creating a separate one:
-conda create -p $CONDA_BASE/bam-readcount -c bioconda -c conda-forge bam-readcount
-cp $CONDA_BASE/bam-readcount/bin/bam-readcount $CONDA_BASE/nag/bin
-
-

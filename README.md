@@ -1,5 +1,58 @@
 # 🏺 Tumor neoantigen identification <!-- omit in toc --> 
 
+## NAG - a pVACtools wrapper for neoantigen prediction
+
+### Installation
+
+Refer to [install_readme.sh](install_readme.sh) for instructions.
+
+Load with:
+
+```
+$ export PATH=/g/data/gx8/extras/umccrise_2020_Sep/miniconda/envs/umccrise_neoantigens/bin:$PATH
+```
+
+### Usage
+
+```
+$ nag -v SOMATIC.VCF \
+      -s SAMPLE_NAME \
+      -O OPTITYPE_FILE \
+      -R BCBIO_RNA_RUN \
+      -r BCBIO_RNA_SAMPLE_NAME \
+      -o OUTPUT_DIR \
+      [-j N]
+
+# Example:
+$ nag -v /g/data/gx8/projects/Saveliev_APGI/LTS/results/umccrised/APGI_2121/small_variants/APGI_2121-somatic-PASS.vcf.gz \
+      -s APGI_2121 \
+      -O /g/data/gx8/projects/Saveliev_APGI/LTS/results/umccrised/APGI_2121/hla/APGI_2121_tumor_result.tsv \
+      -R /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/full_rnaseq_rerun \
+      -r APGI_2121 \
+      -o nag_results \
+      -j 4
+
+# Example. Run pVACseq only:
+$ nag -v /g/data/gx8/projects/Saveliev_APGI/LTS/results/umccrised/APGI_2121/small_variants/APGI_2121-somatic-PASS.vcf.gz \
+      -s APGI_2121 \
+      -O /g/data/gx8/projects/Saveliev_APGI/LTS/results/umccrised/APGI_2121/hla/APGI_2121_tumor_result.tsv \
+      -o nag_results_seq \
+      -S seq \
+      -j 4
+```
+
+### Usage in umccrise
+
+```
+$ source /g/data/gx8/extras/umccrise_2020_Sep/load_umccrise.sh
+$ umccrise umccrise.tsv -S neoantigens -o results
+
+where `umccrise.tsv` is a tab-separated file like the following:
+sample  wgs     normal  exome   exome_normal    rna     rna_bcbio       rna_sample
+APGI_2121       /g/data/gx8/projects/Saveliev_APGI/LTS/2018-11-30-hg38/final/LTS_APGI_2121_T/LTS_APGI_2121_T-ready.bam  /g/data/gx8/projects/Saveliev_APGI/LTS/2018-11-30-hg38/final/LTS_APGI_2121_N/LTS_APGI_2121_N-ready.bam  /g/data/gx8/projects/Saveliev_APGI/APGI_varcall_bcbio/exomes_prio123456/final/APGI_2121_tumor/APGI_2121_tumor-ready.bam /g/data/gx8/projects/Saveliev_APGI/APGI_varcall_bcbio/exomes_prio123456/final/APGI_2121_normal/APGI_2121_normal-ready.bam       /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/full_rnaseq_rerun/final/APGI_2121/APGI_2121-ready.bam        /g/data/gx8/projects/Saveliev_APGI/LTS/RNA/full_rnaseq_rerun    APGI_2121
+```
+
+
 ## Introduction
 
 _Tumor neoantigen_ is a peptide that displays on the tumor cell surface that could be specifically recognized by neoantigen-specific T cell receptors (TCRs) in the context of major histocompatibility complexes (MHCs). From an immunological perspective, tumor neoantigen is the truly foreign protein and entirely absent from normal human organs/tissues. Tumor neoantigens could derive from nonsynonymous genetic alterations, including:
@@ -243,53 +296,6 @@ Below are some great review papers that comprehensively cover the area of cancer
 - [Nice review by SevenBridges](https://www.sevenbridges.com/neoantigen-discovery-using-ngs-data/)
 
 
-## NAG - a pVACtools wrapper
-
-### Installation
-
-Refer to [install_readme.sh](install_readme.sh) for instructions.
-
-Load with:
-
-```
-export ENSEMBL_VERSION=95
-export PIZZLY_REF_FA=/g/data/gx8/projects/Saveliev_APGI/LTS/RNA/local_rnaseq/work/pizzly/hg38-noversions.fa
-export PATH=/g/data3/gx8/extras/vlad/miniconda/envs/nag/bin:$PATH
-```
-
-### Usage
-
-```
-nag -o OUTPUT_DIR \
-    BCBIO_DNA_RUN \
-    BCBIO_DNA_SAMPLE_NAME \
-    -R BCBIO_RNA_RUN \
-    -r BCBIO_RNA_SAMPLE_NAME \
-    [-j N]
-
-# Example. Process NeverResponder on 4 cores:
-nag -o nag_results \
-    /g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final \
-    diploid_tumor \
-    -R /g/data/gx8/data/pVAC/hg38_wts_samples/final \
-    -r Unknown_B_RNA
-    -j 4
-    
-# Example. Run pVACfuse only (neoepitopes from fusions):
-nag -o nag_results \
-    /g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final \
-    diploid_tumor \
-    -R /g/data/gx8/data/pVAC/hg38_wts_samples/final \
-    -r Unknown_B_RNA
-    pVACfuse
-
-# Example. Run pVACseq only on a sample with purity 40% (to make sure to get rid of subclonal mutations):
-nag -o nag_results \
-    /g/data3/gx8/projects/Saveliev_pVACtools/diploid/bcbio_hg38/final \
-    diploid_tumor \
-    pVACseq \
-    --min-tvaf 40
-```
 
 ### Processing test samples
 
